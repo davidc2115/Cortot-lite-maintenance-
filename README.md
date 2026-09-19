@@ -40,3 +40,15 @@ En ligne de commande, une fois le wrapper présent :
 - Taux proposés : 0 %, 10 %, 20 % (modifiables dans Société).
 
 Ce n’est pas un logiciel de comptabilité certifié. Vérifie les mentions légales de tes factures (SIRET, n° TVA, pénalités de retard, etc.) avant usage réel.
+
+## Déplacements automatiques (km)
+
+1. Renseigne **Adresse** de la société (onglet Société) + tarif **€ HT / km**.
+2. Sur chaque client : **Adresse chantier** (ou facturation).
+3. Bouton **Auto** sur la fiche client → calcule et mémorise la distance aller (géocodage Android).
+4. Sur un devis / facture : **Dépl. A/R auto** ou **Aller simple** → ajoute une ligne détaillée :
+   - `Déplacement A/R — XX km × tarif € HT/km`
+   - Trajet société → chantier
+5. Onglet Déplacements : en choisissant un client, les km se préremplissent.
+
+Estimation = distance à vol d'oiseau × **1,35** (facteur route). Affinable à la main sur la fiche client.

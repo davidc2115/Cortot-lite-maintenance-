@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,7 @@ import fr.cortotelite.app.data.Repo
 import fr.cortotelite.app.data.Travel
 import fr.cortotelite.app.data.TravelMode
 import fr.cortotelite.app.util.euro
+import fr.cortotelite.app.util.Distance
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,13 +115,17 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
     var ladder by remember { mutableStateOf(false) }
     var roof by remember { mutableStateOf("") }
     var access by remember { mutableStateOf("") }
+    var distanceKm by remember { mutableStateOf("") }
+    var distanceStatus by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     LaunchedEffect(loaded) {
         val c = loaded?.client ?: return@LaunchedEffect
         last = c.lastName; first = c.firstName; company = c.companyName
         type = c.type; billing = c.billingAddress; site = c.siteAddress
         land = c.phoneLandline; mobile = c.phoneMobile; email = c.email; notes = c.notes
+        distanceKm = if (c.distanceKm > 0) c.distanceKm.toString() else ""
         loaded?.installations?.firstOrNull()?.let {
             power = if (it.powerKwc == 0.0) "" else it.powerKwc.toString()
             invBrand = it.inverterBrand; invModel = it.inverterModel
@@ -154,6 +160,33 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
             Field("Prénom", first) { first = it }
             Field("Adresse facturation", billing) { billing = it }
             Field("Adresse chantier", site) { site = it }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Field("Distance aller (km)", distanceKm, KeyboardType.Decimal, Modifier.weight(1f)) { distanceKm = it }
+                OutlinedButton(onClick = {
+                    scope.launch {
+                        distanceStatus = "Calcul…"
+                        // Sauvegarde temporaire des adresses pour le calcul
+                        val tmpId = if (id == 0L) {
+                            repo.saveClient(
+                                Client(
+                                    type = type, lastName = last, firstName = first, companyName = company,
+                                    billingAddress = billing, siteAddress = site, phoneLandline = land,
+                                    phoneMobile = mobile, email = email, notes = notes
+                                ),
+                                Installation(clientId = 0, accessNotes = access)
+                            )
+                        } else id
+                        val km = repo.refreshClientDistance(context, tmpId)
+                        if (km != null) {
+                            distanceKm = km.toString()
+                            distanceStatus = "OK · ${km} km (aller) · A/R ${(km * 2)}"
+                        } else {
+                            distanceStatus = "Échec géocodage — vérifie l'adresse société (Paramètres) et le chantier"
+                        }
+                    }
+                }) { Text("Auto") }
+            }
+            if (distanceStatus != null) Text(distanceStatus!!, style = MaterialTheme.typography.bodySmall)
             Field("Téléphone fixe", land, KeyboardType.Phone) { land = it }
             Field("Téléphone portable", mobile, KeyboardType.Phone) { mobile = it }
             Field("E-mail", email, KeyboardType.Email) { email = it }
@@ -176,7 +209,8 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
                     val client = Client(
                         id = if (id == 0L) 0 else id, type = type, lastName = last, firstName = first,
                         companyName = company, billingAddress = billing, siteAddress = site,
-                        phoneLandline = land, phoneMobile = mobile, email = email, notes = notes
+                        phoneLandline = land, phoneMobile = mobile, email = email, notes = notes,
+                        distanceKm = distanceKm.replace(",", ".").toDoubleOrNull() ?: 0.0
                     )
                     val inst = Installation(
                         clientId = client.id, powerKwc = power.toDoubleOrNull() ?: 0.0,
@@ -257,7 +291,10 @@ fun DocumentsScreen(repo: Repo, nav: NavController) {
 fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
     val packed by repo.documentWithLines(id).collectAsState(null)
     val clients by repo.clients().collectAsState(emptyList())
+    val company by repo.company().collectAsState(null)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var travelMsg by remember { mutableStateOf<String?>(null) }
     var label by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var price by remember { mutableStateOf("") }
@@ -343,6 +380,36 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                     Text("Total TTC  ${totals.ttc.euro()}", style = MaterialTheme.typography.titleMedium)
                 }
             }
+            // Déplacement automatique basé sur la distance client
+            val rate = company?.travelRatePerKmHt ?: 0.80
+            val oneWay = client?.distanceKm ?: 0.0
+            val rtDefault = company?.travelRoundTripDefault != false
+            if (client != null) {
+                Text(
+                    if (oneWay > 0)
+                        "Distance en cache : ${oneWay} km aller · tarif ${rate} € HT/km"
+                    else
+                        "Pas de distance en cache — calcul au clic (adresse société + chantier)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            travelMsg = "Calcul…"
+                            val line = repo.addAutoTravelLine(context, doc.id, client.id, roundTrip = true)
+                            travelMsg = if (line != null) "Ligne A/R ajoutée" else "Impossible : renseigne adresse société (onglet Société) et adresse chantier"
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text("Dépl. A/R auto") }
+                    OutlinedButton(onClick = {
+                        scope.launch {
+                            travelMsg = "Calcul…"
+                            val line = repo.addAutoTravelLine(context, doc.id, client.id, roundTrip = false)
+                            travelMsg = if (line != null) "Ligne aller simple ajoutée" else "Impossible : vérifie les adresses"
+                        }
+                    }, modifier = Modifier.weight(1f)) { Text("Aller simple") }
+                }
+                if (travelMsg != null) Text(travelMsg!!, style = MaterialTheme.typography.bodySmall)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = { scope.launch { repo.updateDocument(doc.copy(status = DocumentStatus.ENVOYE)) } }, label = { Text("Envoyé") })
                 AssistChip(onClick = { scope.launch { repo.updateDocument(doc.copy(status = DocumentStatus.PAYE)) } }, label = { Text("Payé") })
@@ -365,7 +432,9 @@ fun TravelsScreen(repo: Repo, nav: NavController) {
     val travels by repo.travels().collectAsState(emptyList())
     val clients by repo.clients().collectAsState(emptyList())
     val docs by repo.documents().collectAsState(emptyList())
+    val company by repo.company().collectAsState(null)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var clientId by remember { mutableStateOf(0L) }
     var mode by remember { mutableStateOf(TravelMode.KM) }
     var km by remember { mutableStateOf("") }
@@ -374,6 +443,7 @@ fun TravelsScreen(repo: Repo, nav: NavController) {
     var attach by remember { mutableStateOf(false) }
     var docId by remember { mutableStateOf<Long?>(null) }
     var menu by remember { mutableStateOf(false) }
+    var autoInfo by remember { mutableStateOf<String?>(null) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Déplacements") }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -383,9 +453,30 @@ fun TravelsScreen(repo: Repo, nav: NavController) {
             }
             DropdownMenu(menu, { menu = false }) {
                 clients.forEach {
-                    DropdownMenuItem(text = { Text(it.displayName()) }, onClick = { clientId = it.id; menu = false })
+                    DropdownMenuItem(text = { Text(it.displayName()) }, onClick = {
+                        clientId = it.id
+                        menu = false
+                        scope.launch {
+                            val c = it
+                            var oneWay = c.distanceKm
+                            if (oneWay <= 0) {
+                                autoInfo = "Calcul distance…"
+                                oneWay = repo.refreshClientDistance(context, c.id) ?: 0.0
+                            }
+                            val rt = company?.travelRoundTripDefault != false
+                            val useKm = if (rt) oneWay * 2 else oneWay
+                            if (useKm > 0) {
+                                mode = TravelMode.KM
+                                km = useKm.toString()
+                                autoInfo = if (rt) "A/R auto : ${useKm} km (${oneWay} × 2)" else "Aller auto : ${useKm} km"
+                            } else {
+                                autoInfo = "Pas de distance — saisie manuelle ou renseigne les adresses"
+                            }
+                        }
+                    })
                 }
             }
+            if (autoInfo != null) Text(autoInfo!!, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(mode == TravelMode.KM, { mode = TravelMode.KM }, label = { Text("Au km") })
                 FilterChip(mode == TravelMode.FORFAIT, { mode = TravelMode.FORFAIT }, label = { Text("Forfait") })
@@ -457,6 +548,7 @@ fun SettingsScreen(repo: Repo) {
     var km by remember { mutableStateOf("0.80") }
     var forfait by remember { mutableStateOf("45") }
     var hourly by remember { mutableStateOf("55") }
+    var roundTrip by remember { mutableStateOf(true) }
     LaunchedEffect(company) {
         val c = company ?: return@LaunchedEffect
         name = c.name; legal = c.legalName; address = c.address; siret = c.siret
@@ -464,6 +556,7 @@ fun SettingsScreen(repo: Repo) {
         vat = c.defaultVatRate.toString(); vatRed = c.reducedVatRate.toString()
         km = c.travelRatePerKmHt.toString(); forfait = c.travelForfaitHt.toString()
         hourly = c.travelHourlyHt.toString()
+        roundTrip = c.travelRoundTripDefault
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Société") }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -479,6 +572,14 @@ fun SettingsScreen(repo: Repo) {
             Field("Déplacement € HT / km", km, KeyboardType.Decimal) { km = it }
             Field("Forfait déplacement € HT", forfait, KeyboardType.Decimal) { forfait = it }
             Field("Heure déplacement € HT", hourly, KeyboardType.Decimal) { hourly = it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(roundTrip, { roundTrip = it })
+                Text("Déplacement auto en aller-retour (km × 2)")
+            }
+            Text(
+                "Le calcul auto utilise l'adresse société ci-dessus et l'adresse chantier du client (géocodage Android).",
+                style = MaterialTheme.typography.bodySmall
+            )
             Button(onClick = {
                 scope.launch {
                     repo.saveCompany(
@@ -489,7 +590,8 @@ fun SettingsScreen(repo: Repo) {
                             reducedVatRate = vatRed.replace(",", ".").toDoubleOrNull() ?: 10.0,
                             travelRatePerKmHt = km.replace(",", ".").toDoubleOrNull() ?: 0.8,
                             travelForfaitHt = forfait.replace(",", ".").toDoubleOrNull() ?: 45.0,
-                            travelHourlyHt = hourly.replace(",", ".").toDoubleOrNull() ?: 55.0
+                            travelHourlyHt = hourly.replace(",", ".").toDoubleOrNull() ?: 55.0,
+                            travelRoundTripDefault = roundTrip
                         )
                     )
                 }

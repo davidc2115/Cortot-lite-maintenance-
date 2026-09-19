@@ -27,6 +27,8 @@ data class CompanySettings(
     val travelRatePerKmHt: Double = 0.80,
     val travelForfaitHt: Double = 45.0,
     val travelHourlyHt: Double = 55.0,
+    /** Si true, le calcul auto propose l'aller-retour (km × 2). */
+    val travelRoundTripDefault: Boolean = true,
     val nextQuoteNumber: Int = 1,
     val nextInvoiceNumber: Int = 1
 )
@@ -44,6 +46,8 @@ data class Client(
     val phoneMobile: String = "",
     val email: String = "",
     val notes: String = "",
+    /** Distance aller simple société → chantier (km), mise en cache. 0 = inconnu. */
+    val distanceKm: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis()
 )
 

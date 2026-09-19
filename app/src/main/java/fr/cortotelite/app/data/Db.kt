@@ -27,7 +27,7 @@ class Converters {
         CompanySettings::class, Client::class, Installation::class,
         Document::class, DocumentLine::class, Travel::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -43,7 +43,8 @@ abstract class AppDb : RoomDatabase() {
                     context.applicationContext,
                     AppDb::class.java,
                     "cortot_elite.db"
-                ).addCallback(object : Callback() {
+                ).addMigrations(MIGRATION_1_2)
+                .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
                         CoroutineScope(Dispatchers.IO).launch {

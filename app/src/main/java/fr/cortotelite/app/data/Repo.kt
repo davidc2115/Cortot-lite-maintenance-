@@ -1,5 +1,7 @@
 package fr.cortotelite.app.data
 
+import android.content.Context
+import fr.cortotelite.app.util.Distance
 import fr.cortotelite.app.util.breakdown
 import fr.cortotelite.app.util.round2
 import java.util.Calendar
@@ -85,6 +87,75 @@ class Repo(private val dao: AppDao) {
     }
 
     suspend fun deleteTravel(travel: Travel) = dao.deleteTravel(travel)
+
+    /**
+     * Estime la distance société → chantier client, met à jour le cache client.distanceKm (aller simple).
+     * @return km aller simple, ou null si géocodage impossible.
+     */
+    suspend fun refreshClientDistance(context: Context, clientId: Long): Double? {
+        val company = dao.companyNow() ?: return null
+        val client = dao.client(clientId) ?: return null
+        val site = client.siteAddress.ifBlank { client.billingAddress }
+        if (company.address.isBlank() || site.isBlank()) return null
+        val result = Distance.estimate(context, company.address, site) ?: return null
+        dao.updateClient(client.copy(distanceKm = result.oneWayKm))
+        return result.oneWayKm
+    }
+
+    /**
+     * Ajoute une ligne de déplacement détaillée sur un document.
+     * Utilise distanceKm en cache, sinon tente un calcul, sinon [fallbackKm].
+     * @param roundTrip si null, utilise le réglage société.
+     */
+    suspend fun addAutoTravelLine(
+        context: Context,
+        documentId: Long,
+        clientId: Long,
+        roundTrip: Boolean? = null,
+        fallbackKm: Double = 0.0
+    ): DocumentLine? {
+        val company = dao.companyNow() ?: CompanySettings()
+        val client = dao.client(clientId) ?: return null
+        var oneWay = client.distanceKm
+        if (oneWay <= 0) {
+            oneWay = refreshClientDistance(context, clientId) ?: fallbackKm
+        }
+        if (oneWay <= 0) return null
+        val isRt = roundTrip ?: company.travelRoundTripDefault
+        val km = if (isRt) (oneWay * 2) else oneWay
+        val ht = (km * company.travelRatePerKmHt).round2()
+        val site = client.siteAddress.ifBlank { client.billingAddress }
+        val traj = if (isRt) "A/R" else "Aller simple"
+        val label = buildString {
+            append("Déplacement $traj — ${km.round2()} km")
+            append(" × ${company.travelRatePerKmHt.round2()} € HT/km")
+            if (company.address.isNotBlank() && site.isNotBlank()) {
+                append("
+${company.address.trim()} → ${site.trim()}")
+            }
+        }
+        val line = DocumentLine(
+            documentId = documentId,
+            label = label,
+            quantity = 1.0,
+            unitPriceHt = ht
+        )
+        val id = dao.insertLine(line)
+        // Historise aussi dans travels
+        dao.insertTravel(
+            Travel(
+                clientId = clientId,
+                documentId = documentId,
+                mode = TravelMode.KM,
+                kilometers = km,
+                amountHt = ht,
+                vatRate = company.defaultVatRate,
+                comment = label.replace("
+", " | ")
+            )
+        )
+        return line.copy(id = id)
+    }
 
     fun documentTotals(lines: List<DocumentLine>, vatRate: Double) =
         breakdown(lines.sumOf { it.quantity * it.unitPriceHt }, vatRate)
