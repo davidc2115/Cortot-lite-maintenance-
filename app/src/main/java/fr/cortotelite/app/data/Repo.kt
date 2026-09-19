@@ -31,7 +31,13 @@ class Repo(private val dao: AppDao) {
 
     suspend fun deleteClient(client: Client) = dao.deleteClient(client)
 
-    suspend fun createDocument(clientId: Long, kind: DocumentKind, vatRate: Double? = null, title: String = "Installation / maintenance PV"): Long {
+    suspend fun createDocument(
+        clientId: Long,
+        kind: DocumentKind,
+        vatRate: Double? = null,
+        title: String = "Entretien PV et contrôle",
+        autoLines: Boolean = true
+    ): Long {
         val company = dao.companyNow() ?: CompanySettings()
         val client = dao.client(clientId)
         // TVA auto : particulier → taux réduit, professionnel → taux normal
@@ -55,19 +61,50 @@ class Repo(private val dao: AppDao) {
         val docId = dao.insertDocument(
             Document(clientId = clientId, kind = kind, number = number, vatRate = rate, title = title)
         )
-        // Ligne auto selon puissance installation (kWc × tarif société)
-        val install = dao.installationFor(clientId)
-        val kwc = install?.powerKwc ?: 0.0
-        if (kwc > 0 && company.pricePerKwcHt > 0) {
+        if (autoLines) {
+            // Ligne de base entretien / contrôle
+            val unit = if (company.pricePerKwcHt > 0) company.pricePerKwcHt else 40.0
             dao.insertLine(
                 DocumentLine(
                     documentId = docId,
-                    label = "Installation photovoltaïque — ${kwc} kWc × ${company.pricePerKwcHt.round2()} € HT/kWc",
-                    quantity = kwc,
-                    unitPriceHt = company.pricePerKwcHt,
+                    label = "Entretien PV et contrôle",
+                    quantity = 1.0,
+                    unitPriceHt = unit,
                     sortOrder = 0
                 )
             )
+            // Déplacement aller simple automatique si distance connue
+            var oneWay = client?.distanceKm ?: 0.0
+            if (oneWay <= 0 && client != null && company.address.isNotBlank()) {
+                // distance en cache uniquement ici (pas de Context pour géocoder)
+                oneWay = client.distanceKm
+            }
+            if (oneWay > 0 && company.travelRatePerKmHt > 0) {
+                val km = oneWay // aller simple
+                val ht = (km * company.travelRatePerKmHt).round2()
+                val site = client?.siteAddress?.ifBlank { client.billingAddress }.orEmpty()
+                val label = buildString {
+                    append("Déplacement Aller simple — ${km.round2()} km")
+                    append(" × ${company.travelRatePerKmHt.round2()} € HT/km")
+                    if (company.address.isNotBlank() && site.isNotBlank()) {
+                        append("\n${company.address.trim()} → ${site.trim()}")
+                    }
+                }
+                dao.insertLine(
+                    DocumentLine(documentId = docId, label = label, quantity = 1.0, unitPriceHt = ht, sortOrder = 1)
+                )
+                dao.insertTravel(
+                    Travel(
+                        clientId = clientId,
+                        documentId = docId,
+                        mode = TravelMode.KM,
+                        kilometers = km,
+                        amountHt = ht,
+                        vatRate = rate,
+                        comment = label.replace("\n", " | ")
+                    )
+                )
+            }
         }
         return docId
     }
@@ -75,7 +112,7 @@ class Repo(private val dao: AppDao) {
     suspend fun convertQuoteToInvoice(quoteId: Long): Long? {
         val quote = dao.document(quoteId) ?: return null
         if (quote.kind != DocumentKind.DEVIS) return null
-        val newId = createDocument(quote.clientId, DocumentKind.FACTURE, quote.vatRate, quote.title)
+        val newId = createDocument(quote.clientId, DocumentKind.FACTURE, quote.vatRate, quote.title, autoLines = false)
         dao.lines(quoteId).forEach {
             dao.insertLine(it.copy(id = 0, documentId = newId))
         }

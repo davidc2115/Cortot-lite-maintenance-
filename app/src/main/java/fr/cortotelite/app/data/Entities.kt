@@ -30,7 +30,7 @@ data class CompanySettings(
     /** Si true, le calcul auto propose l'aller-retour (km × 2). */
     val travelRoundTripDefault: Boolean = true,
     /** Prix HT par kWc pour facturation auto de l'installation. */
-    val pricePerKwcHt: Double = 1200.0,
+    val pricePerKwcHt: Double = 40.0,
     val nextQuoteNumber: Int = 1,
     val nextInvoiceNumber: Int = 1
 )

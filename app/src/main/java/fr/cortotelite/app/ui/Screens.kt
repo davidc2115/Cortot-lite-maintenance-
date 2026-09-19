@@ -327,7 +327,7 @@ fun DocumentsScreen(repo: Repo, nav: NavController) {
                             TextButton(onClick = {
                                 scope.launch {
                                     val vat = company?.defaultVatRate ?: 20.0
-                                    val newId = repo.createDocument(c.id, kind, title = "Installation / maintenance PV")
+                                    val newId = repo.createDocument(c.id, kind, title = "Entretien PV et contrôle")
                                     pick = false
                                     nav.navigate("doc/$newId")
                                 }
@@ -464,8 +464,7 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                         enabled = !client?.email.isNullOrBlank(),
                         onClick = {
                             val co = company ?: fr.cortotelite.app.data.CompanySettings()
-                            val file = PdfExport.buildPdf(context, co, client, doc, lines, totals)
-                            PdfExport.sharePdf(context, file, "${doc.number}", client?.email)
+                            PdfExport.emailDocument(context, co, client, doc, lines, totals)
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text("E-mail client") }
@@ -515,6 +514,25 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                     IconButton(onClick = { scope.launch { repo.deleteLine(line) } }) {
                         Icon(Icons.Outlined.Delete, null)
                     }
+                }
+            }
+            Text("Ajout rapide", style = MaterialTheme.typography.titleSmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    "Intervention" to 60.0,
+                    "Modification" to 45.0,
+                    "Dépannage" to 80.0,
+                    "Contrôle" to 40.0
+                ).forEach { (name, defaultPrice) ->
+                    AssistChip(
+                        onClick = {
+                            label = name
+                            price = defaultPrice.toString()
+                            qty = "1"
+                            priceIsTtc = false
+                        },
+                        label = { Text(name) }
+                    )
                 }
             }
             Field("Prestation", label) { label = it }
@@ -569,12 +587,7 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                     enabled = !client?.email.isNullOrBlank(),
                     onClick = {
                         val co = company ?: fr.cortotelite.app.data.CompanySettings()
-                        val file = PdfExport.buildPdf(context, co, client, doc, lines, totals)
-                        PdfExport.sharePdf(
-                            context, file,
-                            subject = "${if (doc.kind == DocumentKind.DEVIS) "Devis" else "Facture"} ${doc.number}",
-                            email = client?.email
-                        )
+                        PdfExport.emailDocument(context, co, client, doc, lines, totals)
                     },
                     modifier = Modifier.weight(1f)
                 ) { Text("E-mail") }
@@ -778,7 +791,7 @@ fun SettingsScreen(repo: Repo) {
     var km by remember { mutableStateOf("0.80") }
     var forfait by remember { mutableStateOf("45") }
     var hourly by remember { mutableStateOf("55") }
-    var priceKwc by remember { mutableStateOf("1200") }
+    var priceKwc by remember { mutableStateOf("40") }
     var roundTrip by remember { mutableStateOf(true) }
     LaunchedEffect(company) {
         val c = company ?: return@LaunchedEffect
@@ -801,9 +814,9 @@ fun SettingsScreen(repo: Repo) {
             Field("E-mail", email) { email = it }
             Field("TVA pro (normale) %", vat, KeyboardType.Decimal) { vat = it }
             Field("TVA particulier (réduite) %", vatRed, KeyboardType.Decimal) { vatRed = it }
-            Field("Prix HT / kWc (facture auto)", priceKwc, KeyboardType.Decimal) { priceKwc = it }
+            Field("Tarif entretien PV / contrôle HT (€)", priceKwc, KeyboardType.Decimal) { priceKwc = it }
             Text(
-                "À la création d'un devis/facture : TVA auto selon type client + ligne auto si puissance kWc renseignée.",
+                "À la création : ligne « Entretien PV et contrôle », déplacement aller simple si distance connue, TVA auto selon type client.",
                 style = MaterialTheme.typography.bodySmall
             )
             Field("Déplacement € HT / km", km, KeyboardType.Decimal) { km = it }
@@ -839,6 +852,7 @@ fun SettingsScreen(repo: Repo) {
 }
 
 
+
 @Composable
 fun DocumentPreview(
     company: fr.cortotelite.app.data.CompanySettings?,
@@ -851,84 +865,69 @@ fun DocumentPreview(
     val co = company ?: fr.cortotelite.app.data.CompanySettings()
     val kindLabel = if (document.kind == DocumentKind.DEVIS) "DEVIS" else "FACTURE"
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // En-tête société
-            Text(co.name.ifBlank { "Cortot Élite" }, style = MaterialTheme.typography.headlineSmall)
-            if (co.legalName.isNotBlank()) Text(co.legalName)
-            if (co.address.isNotBlank()) Text(co.address)
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(kindLabel, style = MaterialTheme.typography.headlineLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = {}, label = { Text("${if (document.kind == DocumentKind.DEVIS) "Devis" else "Facture"} n°${document.number}") })
+                AssistChip(onClick = {}, label = { Text(dateFmt.format(Date(document.issuedAt))) })
+            }
+            Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    if (co.siret.isNotBlank()) Text("SIRET : ${co.siret}")
-                    if (co.tvaNumber.isNotBlank()) Text("N° TVA : ${co.tvaNumber}")
+                Column(Modifier.weight(1f)) {
+                    Text(co.name.ifBlank { "Cortot Élite" }.uppercase(), style = MaterialTheme.typography.titleSmall)
+                    if (co.address.isNotBlank()) Text(co.address, style = MaterialTheme.typography.bodySmall)
+                    if (co.phone.isNotBlank()) Text(co.phone, style = MaterialTheme.typography.bodySmall)
+                    if (co.email.isNotBlank()) Text(co.email, style = MaterialTheme.typography.bodySmall)
+                    if (co.siret.isNotBlank()) Text("SIRET ${co.siret}", style = MaterialTheme.typography.bodySmall)
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    if (co.phone.isNotBlank()) Text(co.phone)
-                    if (co.email.isNotBlank()) Text(co.email)
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    Text("À L'ATTENTION DE", style = MaterialTheme.typography.titleSmall)
+                    Text(client?.displayName().orEmpty())
+                    if (!client?.billingAddress.isNullOrBlank()) Text(client!!.billingAddress, style = MaterialTheme.typography.bodySmall)
+                    if (!client?.siteAddress.isNullOrBlank()) Text("Chantier : ${client!!.siteAddress}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (document.title.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text("Objet : ${document.title}")
+            }
+            Spacer(Modifier.height(8.dp))
+            // Header table
+            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Text("DESCRIPTION", Modifier.weight(2.2f), style = MaterialTheme.typography.labelMedium)
+                Text("PRIX", Modifier.weight(0.9f), style = MaterialTheme.typography.labelMedium)
+                Text("QTÉ", Modifier.weight(0.5f), style = MaterialTheme.typography.labelMedium)
+                Text("TOTAL", Modifier.weight(0.9f), style = MaterialTheme.typography.labelMedium)
+            }
+            lines.forEach { line ->
+                val lineHt = line.quantity * line.unitPriceHt
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Text(line.label, Modifier.weight(2.2f), style = MaterialTheme.typography.bodySmall)
+                    Text(line.unitPriceHt.euro(), Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (line.quantity == line.quantity.toLong().toDouble()) line.quantity.toLong().toString() else line.quantity.toString(),
+                        Modifier.weight(0.5f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(lineHt.euro(), Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
-            // Document meta
-            Text("$kindLabel n° ${document.number}", style = MaterialTheme.typography.titleLarge)
-            Text("Date : ${dateFmt.format(Date(document.issuedAt))}")
-            Text("Statut : ${document.status.name}")
-            if (document.title.isNotBlank()) Text("Objet : ${document.title}")
-            Spacer(Modifier.height(8.dp))
-            // Client
-            Text("Client", style = MaterialTheme.typography.titleMedium)
-            Text(client?.displayName().orEmpty())
-            val bill = client?.billingAddress.orEmpty()
-            val site = client?.siteAddress.orEmpty()
-            if (bill.isNotBlank()) Text("Facturation : $bill")
-            if (site.isNotBlank()) Text("Chantier : $site")
-            if (!client?.phoneMobile.isNullOrBlank()) Text("Tél. : ${client?.phoneMobile}")
-            if (!client?.email.isNullOrBlank()) Text("E-mail : ${client?.email}")
-            Spacer(Modifier.height(8.dp))
-            Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
-            // Lignes
-            Text("Détail des prestations", style = MaterialTheme.typography.titleMedium)
-            if (lines.isEmpty()) {
-                Text("Aucune ligne.", style = MaterialTheme.typography.bodySmall)
-            } else {
-                lines.forEachIndexed { index, line ->
-                    val lineHt = (line.quantity * line.unitPriceHt)
-                    Column(Modifier.padding(vertical = 4.dp)) {
-                        Text("${index + 1}. ${line.label}", style = MaterialTheme.typography.bodyMedium)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("${line.quantity} × ${line.unitPriceHt.euro()} HT")
-                            Text(lineHt.euro() + " HT")
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
-            // Totaux
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
                 if (totals.discountPercent > 0) {
                     Text("HT brut : ${totals.htBrut.euro()}")
                     Text("Remise commerciale ${totals.discountPercent} % : -${totals.discountHt.euro()}")
                 }
-                Text("Total HT : ${totals.ht.euro()}")
+                Text("Sous-total HT : ${totals.ht.euro()}")
                 if (totals.vatDiscountPercent > 0) {
-                    Text("TVA brute : ${totals.vatBrut.euro()}")
                     Text("Remise TVA ${totals.vatDiscountPercent} % : -${totals.vatDiscount.euro()}")
                 }
-                Text("TVA ${totals.rate} % : ${totals.vat.euro()}")
-                Text("Total TTC : ${totals.ttc.euro()}", style = MaterialTheme.typography.titleMedium)
-            }
-            if (document.notes.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text("Notes", style = MaterialTheme.typography.titleSmall)
-                Text(document.notes)
+                Text("TVA (${totals.rate} %) : ${totals.vat.euro()}")
+                Text("TOTAL TTC : ${totals.ttc.euro()}", style = MaterialTheme.typography.titleMedium)
             }
             Spacer(Modifier.height(12.dp))
-            Text(
-                "Mentions : pénalités de retard au taux légal en vigueur. Pas d'escompte pour paiement anticipé. " +
-                    (if (co.siret.isNotBlank()) "SIRET ${co.siret}. " else "") +
-                    (if (co.tvaNumber.isNotBlank()) "TVA ${co.tvaNumber}." else "TVA non applicable le cas échéant."),
-                style = MaterialTheme.typography.bodySmall
-            )
+            Text("Paiement à l'ordre de ${co.name.ifBlank { "Cortot Élite" }} · sous 30 jours", style = MaterialTheme.typography.bodySmall)
+            Text("MERCI DE VOTRE CONFIANCE", style = MaterialTheme.typography.titleSmall)
         }
     }
 }
