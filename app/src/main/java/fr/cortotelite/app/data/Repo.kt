@@ -8,6 +8,7 @@ import java.util.Calendar
 
 class Repo(private val dao: AppDao) {
     fun company() = dao.company()
+    suspend fun companyNow() = dao.companyNow()
     fun clients() = dao.clients()
     fun clientWithInstall(id: Long) = dao.clientWithInstall(id)
     fun documents() = dao.documents()

@@ -63,12 +63,16 @@ import fr.cortotelite.app.data.TravelMode
 import fr.cortotelite.app.util.euro
 import fr.cortotelite.app.util.Distance
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientsScreen(repo: Repo, nav: NavController) {
     val clients by repo.clients().collectAsState(emptyList())
     val scope = rememberCoroutineScope()
+    var confirmDelete by remember { mutableStateOf<Client?>(null) }
     Scaffold(
         topBar = { TopAppBar(title = { Text("Cortot Élite — Clients") }) },
         floatingActionButton = {
@@ -79,15 +83,49 @@ fun ClientsScreen(repo: Repo, nav: NavController) {
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
             items(clients, key = { it.id }) { c ->
-                Card(Modifier.padding(12.dp).fillMaxWidth().clickable { nav.navigate("client/${c.id}") }) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(c.displayName(), style = MaterialTheme.typography.titleMedium)
-                        Text(if (c.type == ClientType.PROFESSIONNEL) "Professionnel" else "Particulier")
-                        if (c.phoneMobile.isNotBlank()) Text("Port. ${c.phoneMobile}")
-                        if (c.siteAddress.isNotBlank()) Text("Chantier : ${c.siteAddress}")
+                Card(Modifier.padding(12.dp).fillMaxWidth()) {
+                    Row(
+                        Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .clickable { nav.navigate("client/${c.id}") }
+                                .padding(8.dp)
+                        ) {
+                            Text(c.displayName(), style = MaterialTheme.typography.titleMedium)
+                            Text(if (c.type == ClientType.PROFESSIONNEL) "Professionnel" else "Particulier")
+                            if (c.phoneMobile.isNotBlank()) Text("Port. ${c.phoneMobile}")
+                            if (c.siteAddress.isNotBlank()) Text("Chantier : ${c.siteAddress}")
+                            if (c.distanceKm > 0) Text("Distance : ${c.distanceKm} km")
+                        }
+                        IconButton(onClick = { confirmDelete = c }) {
+                            Icon(Icons.Outlined.Delete, "Supprimer")
+                        }
                     }
                 }
             }
+        }
+        confirmDelete?.let { target ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmDelete = null },
+                title = { Text("Supprimer ce client ?") },
+                text = {
+                    Text("« ${target.displayName()} » et toutes ses fiches liées (devis, factures, déplacements) seront définitivement supprimés.")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        scope.launch {
+                            repo.deleteClient(target)
+                            confirmDelete = null
+                        }
+                    }) { Text("Supprimer") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmDelete = null }) { Text("Annuler") }
+                }
+            )
         }
     }
 }
@@ -117,11 +155,14 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
     var access by remember { mutableStateOf("") }
     var distanceKm by remember { mutableStateOf("") }
     var distanceStatus by remember { mutableStateOf<String?>(null) }
+    var editingId by remember { mutableStateOf(id) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
     LaunchedEffect(loaded) {
         val c = loaded?.client ?: return@LaunchedEffect
+        editingId = c.id
         last = c.lastName; first = c.firstName; company = c.companyName
         type = c.type; billing = c.billingAddress; site = c.siteAddress
         land = c.phoneLandline; mobile = c.phoneMobile; email = c.email; notes = c.notes
@@ -165,23 +206,19 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
                 OutlinedButton(onClick = {
                     scope.launch {
                         distanceStatus = "Calcul…"
-                        // Sauvegarde temporaire des adresses pour le calcul
-                        val tmpId = if (id == 0L) {
-                            repo.saveClient(
-                                Client(
-                                    type = type, lastName = last, firstName = first, companyName = company,
-                                    billingAddress = billing, siteAddress = site, phoneLandline = land,
-                                    phoneMobile = mobile, email = email, notes = notes
-                                ),
-                                Installation(clientId = 0, accessNotes = access)
-                            )
-                        } else id
-                        val km = repo.refreshClientDistance(context, tmpId)
-                        if (km != null) {
-                            distanceKm = km.toString()
-                            distanceStatus = "OK · ${km} km (aller) · A/R ${(km * 2)}"
+                        val co = repo.companyNow()
+                        val from = co?.address.orEmpty()
+                        val to = site.ifBlank { billing }
+                        if (from.isBlank() || to.isBlank()) {
+                            distanceStatus = "Renseigne l'adresse société (onglet Société) et le chantier"
+                            return@launch
+                        }
+                        val result = Distance.estimate(context, from, to)
+                        if (result != null) {
+                            distanceKm = result.oneWayKm.toString()
+                            distanceStatus = "OK · ${result.oneWayKm} km (aller) · A/R ${result.roundTripKm}"
                         } else {
-                            distanceStatus = "Échec géocodage — vérifie l'adresse société (Paramètres) et le chantier"
+                            distanceStatus = "Échec géocodage — vérifie les adresses"
                         }
                     }
                 }) { Text("Auto") }
@@ -207,7 +244,7 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
             Button(onClick = {
                 scope.launch {
                     val client = Client(
-                        id = if (id == 0L) 0 else id, type = type, lastName = last, firstName = first,
+                        id = editingId, type = type, lastName = last, firstName = first,
                         companyName = company, billingAddress = billing, siteAddress = site,
                         phoneLandline = land, phoneMobile = mobile, email = email, notes = notes,
                         distanceKm = distanceKm.replace(",", ".").toDoubleOrNull() ?: 0.0
@@ -219,14 +256,42 @@ fun ClientEditScreen(repo: Repo, id: Long, nav: NavController) {
                         panelBrand = panelBrand, panelCount = panelCount.toIntOrNull() ?: 0,
                         needsLadder = ladder, roofType = roof, accessNotes = access
                     )
-                    repo.saveClient(client, inst)
+                    val newId = repo.saveClient(client, inst)
+                    editingId = newId
                     nav.popBackStack()
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer") }
-            if (id != 0L) {
+            if (editingId != 0L) {
                 OutlinedButton(onClick = { nav.navigate("docs") }, modifier = Modifier.fillMaxWidth()) {
                     Text("Voir devis / factures")
                 }
+                OutlinedButton(
+                    onClick = { confirmDelete = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Supprimer ce client") }
+            }
+            if (confirmDelete) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmDelete = false },
+                    title = { Text("Supprimer ce client ?") },
+                    text = { Text("Devis, factures et déplacements liés seront aussi supprimés.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            scope.launch {
+                                val c = loaded?.client
+                                if (c != null) repo.deleteClient(c)
+                                else if (editingId != 0L) {
+                                    repo.deleteClient(Client(id = editingId, lastName = last, firstName = first))
+                                }
+                                confirmDelete = false
+                                nav.popBackStack()
+                            }
+                        }) { Text("Supprimer") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmDelete = false }) { Text("Annuler") }
+                    }
+                )
             }
         }
     }
@@ -277,7 +342,8 @@ fun DocumentsScreen(repo: Repo, nav: NavController) {
                         Column(Modifier.padding(16.dp)) {
                             Text("${d.number} · ${d.status}", style = MaterialTheme.typography.titleMedium)
                             Text(client?.displayName().orEmpty())
-                            Text(d.title)
+                            if (d.title.isNotBlank()) Text(d.title)
+                            Text("TVA ${d.vatRate.toInt()} % — ouvrir pour aperçu détaillé")
                         }
                     }
                 }
@@ -295,6 +361,7 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var travelMsg by remember { mutableStateOf<String?>(null) }
+    var showPreview by remember { mutableStateOf(false) }
     var label by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var price by remember { mutableStateOf("") }
@@ -316,6 +383,9 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                 },
                 actions = {
                     if (doc != null) {
+                        TextButton(onClick = { showPreview = !showPreview }) {
+                            Text(if (showPreview) "Éditer" else "Aperçu")
+                        }
                         IconButton(onClick = { scope.launch { repo.deleteDocument(doc); nav.popBackStack() } }) {
                             Icon(Icons.Outlined.Delete, null)
                         }
@@ -326,6 +396,16 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
     ) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (doc == null) { Text("Chargement…"); return@Column }
+            if (showPreview) {
+                DocumentPreview(
+                    company = company,
+                    client = client,
+                    document = doc,
+                    lines = lines,
+                    totals = totals
+                )
+                return@Column
+            }
             Text(client?.displayName().orEmpty(), style = MaterialTheme.typography.titleMedium)
             Text("${if (doc.kind == DocumentKind.DEVIS) "Devis" else "Facture"} · ${doc.status}")
             Text("TVA ${doc.vatRate.toInt()} % — saisie ${if (preferTtc) "orientée TTC (particulier)" else "orientée HT (pro)"}")
@@ -596,6 +676,93 @@ fun SettingsScreen(repo: Repo) {
                     )
                 }
             }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer") }
+        }
+    }
+}
+
+
+@Composable
+fun DocumentPreview(
+    company: fr.cortotelite.app.data.CompanySettings?,
+    client: Client?,
+    document: Document,
+    lines: List<DocumentLine>,
+    totals: fr.cortotelite.app.util.VatBreakdown
+) {
+    val dateFmt = remember { SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE) }
+    val co = company ?: fr.cortotelite.app.data.CompanySettings()
+    val kindLabel = if (document.kind == DocumentKind.DEVIS) "DEVIS" else "FACTURE"
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // En-tête société
+            Text(co.name.ifBlank { "Cortot Élite" }, style = MaterialTheme.typography.headlineSmall)
+            if (co.legalName.isNotBlank()) Text(co.legalName)
+            if (co.address.isNotBlank()) Text(co.address)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    if (co.siret.isNotBlank()) Text("SIRET : ${co.siret}")
+                    if (co.tvaNumber.isNotBlank()) Text("N° TVA : ${co.tvaNumber}")
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    if (co.phone.isNotBlank()) Text(co.phone)
+                    if (co.email.isNotBlank()) Text(co.email)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
+            // Document meta
+            Text("$kindLabel n° ${document.number}", style = MaterialTheme.typography.titleLarge)
+            Text("Date : ${dateFmt.format(Date(document.issuedAt))}")
+            Text("Statut : ${document.status.name}")
+            if (document.title.isNotBlank()) Text("Objet : ${document.title}")
+            Spacer(Modifier.height(8.dp))
+            // Client
+            Text("Client", style = MaterialTheme.typography.titleMedium)
+            Text(client?.displayName().orEmpty())
+            val bill = client?.billingAddress.orEmpty()
+            val site = client?.siteAddress.orEmpty()
+            if (bill.isNotBlank()) Text("Facturation : $bill")
+            if (site.isNotBlank()) Text("Chantier : $site")
+            if (!client?.phoneMobile.isNullOrBlank()) Text("Tél. : ${client?.phoneMobile}")
+            if (!client?.email.isNullOrBlank()) Text("E-mail : ${client?.email}")
+            Spacer(Modifier.height(8.dp))
+            Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
+            // Lignes
+            Text("Détail des prestations", style = MaterialTheme.typography.titleMedium)
+            if (lines.isEmpty()) {
+                Text("Aucune ligne.", style = MaterialTheme.typography.bodySmall)
+            } else {
+                lines.forEachIndexed { index, line ->
+                    val lineHt = (line.quantity * line.unitPriceHt)
+                    Column(Modifier.padding(vertical = 4.dp)) {
+                        Text("${index + 1}. ${line.label}", style = MaterialTheme.typography.bodyMedium)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("${line.quantity} × ${line.unitPriceHt.euro()} HT")
+                            Text(lineHt.euro() + " HT")
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
+            // Totaux
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                Text("Total HT : ${totals.ht.euro()}")
+                Text("TVA ${totals.rate.toInt()} % : ${totals.vat.euro()}")
+                Text("Total TTC : ${totals.ttc.euro()}", style = MaterialTheme.typography.titleMedium)
+            }
+            if (document.notes.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Notes", style = MaterialTheme.typography.titleSmall)
+                Text(document.notes)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Mentions : pénalités de retard au taux légal en vigueur. Pas d'escompte pour paiement anticipé. " +
+                    (if (co.siret.isNotBlank()) "SIRET ${co.siret}. " else "") +
+                    (if (co.tvaNumber.isNotBlank()) "TVA ${co.tvaNumber}." else "TVA non applicable le cas échéant."),
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
