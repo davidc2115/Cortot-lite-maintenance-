@@ -12,3 +12,5 @@
 .cxx
 *.keystore
 !debug.keystore
+!**/cortot-debug.keystore
+!app/cortot-debug.keystore

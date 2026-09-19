@@ -12,13 +12,25 @@ android {
         applicationId = "fr.cortotelite.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
+    }
+    signingConfigs {
+        create("cortot") {
+            storeFile = file("cortot-debug.keystore")
+            storePassword = "cortotelite"
+            keyAlias = "cortot"
+            keyPassword = "cortotelite"
+        }
     }
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("cortot")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("cortot")
         }
     }
     compileOptions {

@@ -61,3 +61,11 @@ Estimation = distance à vol d'oiseau × **1,35** (facteur route). Affinable à 
 - **Remises** : commerciale % sur HT, et/ou % sur la TVA
 - **PDF** : partager / enregistrer / envoyer
 - **E-mail** et **Appeler** le client depuis la fiche document
+
+## Mises à jour APK (sans désinstaller)
+
+Les builds CI sont signés avec un **keystore stable** (`app/cortot-debug.keystore`).
+Tu peux installer chaque nouvelle APK **par-dessus** l’ancienne sans perdre les données.
+
+- `versionCode` doit augmenter à chaque release (actuel : **2** / `1.1.0`)
+- **Une seule fois** : si l’APK déjà installée venait d’un ancien build (autre signature), désinstalle-la une dernière fois, puis réinstalle. Ensuite plus besoin.
