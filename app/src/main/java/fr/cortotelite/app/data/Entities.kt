@@ -11,6 +11,7 @@ enum class ClientType { PARTICULIER, PROFESSIONNEL }
 enum class DocumentKind { DEVIS, FACTURE }
 enum class DocumentStatus { BROUILLON, ENVOYE, ACCEPTE, REFUSE, PAYE }
 enum class TravelMode { FORFAIT, KM, TEMPS }
+enum class MaintenanceBillingMode { PUISSANCE, FORFAIT }
 
 @Entity(tableName = "company")
 data class CompanySettings(
@@ -29,8 +30,12 @@ data class CompanySettings(
     val travelHourlyHt: Double = 55.0,
     /** Si true, le calcul auto propose l'aller-retour (km × 2). */
     val travelRoundTripDefault: Boolean = true,
-    /** Prix HT par kWc pour facturation auto de l'installation. */
+    /** Facturation entretien : par puissance (kWc) ou forfait. */
+    val maintenanceBillingMode: MaintenanceBillingMode = MaintenanceBillingMode.PUISSANCE,
+    /** Prix HT par kWc (mode puissance). */
     val pricePerKwcHt: Double = 40.0,
+    /** Forfait HT entretien / contrôle (mode forfait). */
+    val maintenanceForfaitHt: Double = 80.0,
     val nextQuoteNumber: Int = 1,
     val nextInvoiceNumber: Int = 1
 )

@@ -60,6 +60,7 @@ import fr.cortotelite.app.data.Installation
 import fr.cortotelite.app.data.Repo
 import fr.cortotelite.app.data.Travel
 import fr.cortotelite.app.data.TravelMode
+import fr.cortotelite.app.data.MaintenanceBillingMode
 import fr.cortotelite.app.util.euro
 import fr.cortotelite.app.util.Distance
 import fr.cortotelite.app.util.PdfExport
@@ -792,6 +793,8 @@ fun SettingsScreen(repo: Repo) {
     var forfait by remember { mutableStateOf("45") }
     var hourly by remember { mutableStateOf("55") }
     var priceKwc by remember { mutableStateOf("40") }
+    var maintForfait by remember { mutableStateOf("80") }
+    var billingMode by remember { mutableStateOf(MaintenanceBillingMode.PUISSANCE) }
     var roundTrip by remember { mutableStateOf(true) }
     LaunchedEffect(company) {
         val c = company ?: return@LaunchedEffect
@@ -801,6 +804,8 @@ fun SettingsScreen(repo: Repo) {
         km = c.travelRatePerKmHt.toString(); forfait = c.travelForfaitHt.toString()
         hourly = c.travelHourlyHt.toString()
         priceKwc = c.pricePerKwcHt.toString()
+        maintForfait = c.maintenanceForfaitHt.toString()
+        billingMode = c.maintenanceBillingMode
         roundTrip = c.travelRoundTripDefault
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Société") }) }) { pad ->
@@ -814,20 +819,47 @@ fun SettingsScreen(repo: Repo) {
             Field("E-mail", email) { email = it }
             Field("TVA pro (normale) %", vat, KeyboardType.Decimal) { vat = it }
             Field("TVA particulier (réduite) %", vatRed, KeyboardType.Decimal) { vatRed = it }
-            Field("Tarif entretien PV / contrôle HT (€)", priceKwc, KeyboardType.Decimal) { priceKwc = it }
-            Text(
-                "À la création : ligne entretien = puissance kWc × tarif €/kWc (ex. 2 kWc × 40 €), déplacement aller simple si distance, TVA auto selon type client.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Field("Déplacement € HT / km", km, KeyboardType.Decimal) { km = it }
+
+            Text("Facturation entretien PV", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = billingMode == MaintenanceBillingMode.PUISSANCE,
+                    onClick = { billingMode = MaintenanceBillingMode.PUISSANCE },
+                    label = { Text("À la puissance") }
+                )
+                FilterChip(
+                    selected = billingMode == MaintenanceBillingMode.FORFAIT,
+                    onClick = { billingMode = MaintenanceBillingMode.FORFAIT },
+                    label = { Text("Forfait") }
+                )
+            }
+            if (billingMode == MaintenanceBillingMode.PUISSANCE) {
+                Field("Prix HT / kWc (ex. 40)", priceKwc, KeyboardType.Decimal) { priceKwc = it }
+                Text("Ex. 3 kWc × 40 € = 120 € HT", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Field("Forfait entretien HT (€)", maintForfait, KeyboardType.Decimal) { maintForfait = it }
+                Text("Montant fixe par intervention, indépendant de la puissance.", style = MaterialTheme.typography.bodySmall)
+            }
+
+            Text("Déplacements", style = MaterialTheme.typography.titleMedium)
+            Text("Mode par défaut à la création d'un devis / facture :")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !roundTrip,
+                    onClick = { roundTrip = false },
+                    label = { Text("Aller simple") }
+                )
+                FilterChip(
+                    selected = roundTrip,
+                    onClick = { roundTrip = true },
+                    label = { Text("Aller-retour") }
+                )
+            }
+            Field("Tarif € HT / km", km, KeyboardType.Decimal) { km = it }
             Field("Forfait déplacement € HT", forfait, KeyboardType.Decimal) { forfait = it }
             Field("Heure déplacement € HT", hourly, KeyboardType.Decimal) { hourly = it }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(roundTrip, { roundTrip = it })
-                Text("Déplacement auto en aller-retour (km × 2)")
-            }
             Text(
-                "Le calcul auto utilise l'adresse société ci-dessus et l'adresse chantier du client (géocodage Android).",
+                "Le calcul km utilise l'adresse société et l'adresse chantier (géocodage). Modifiable aussi sur chaque document.",
                 style = MaterialTheme.typography.bodySmall
             )
             Button(onClick = {
@@ -842,7 +874,9 @@ fun SettingsScreen(repo: Repo) {
                             travelForfaitHt = forfait.replace(",", ".").toDoubleOrNull() ?: 45.0,
                             travelHourlyHt = hourly.replace(",", ".").toDoubleOrNull() ?: 55.0,
                             travelRoundTripDefault = roundTrip,
-                            pricePerKwcHt = priceKwc.replace(",", ".").toDoubleOrNull() ?: 40.0
+                            maintenanceBillingMode = billingMode,
+                            pricePerKwcHt = priceKwc.replace(",", ".").toDoubleOrNull() ?: 40.0,
+                            maintenanceForfaitHt = maintForfait.replace(",", ".").toDoubleOrNull() ?: 80.0
                         )
                     )
                 }

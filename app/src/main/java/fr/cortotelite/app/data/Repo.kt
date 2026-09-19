@@ -62,44 +62,56 @@ class Repo(private val dao: AppDao) {
             Document(clientId = clientId, kind = kind, number = number, vatRate = rate, title = title)
         )
         if (autoLines) {
-            // Entretien / contrôle facturé à la puissance : qty = kWc × prix HT/kWc (ex. 3 × 40 €)
-            val unit = if (company.pricePerKwcHt > 0) company.pricePerKwcHt else 40.0
             val install = dao.installationFor(clientId)
             val kwc = install?.powerKwc ?: 0.0
-            if (kwc > 0) {
-                dao.insertLine(
-                    DocumentLine(
-                        documentId = docId,
-                        label = "Entretien PV et contrôle — ${kwc} kWc × ${unit.round2()} € HT/kWc",
-                        quantity = kwc,
-                        unitPriceHt = unit,
-                        sortOrder = 0
+            val unitKwc = if (company.pricePerKwcHt > 0) company.pricePerKwcHt else 40.0
+            val forfaitMaint = if (company.maintenanceForfaitHt > 0) company.maintenanceForfaitHt else 80.0
+            when (company.maintenanceBillingMode) {
+                MaintenanceBillingMode.PUISSANCE -> {
+                    if (kwc > 0) {
+                        dao.insertLine(
+                            DocumentLine(
+                                documentId = docId,
+                                label = "Entretien PV et contrôle — ${kwc} kWc × ${unitKwc.round2()} € HT/kWc",
+                                quantity = kwc,
+                                unitPriceHt = unitKwc,
+                                sortOrder = 0
+                            )
+                        )
+                    } else {
+                        dao.insertLine(
+                            DocumentLine(
+                                documentId = docId,
+                                label = "Entretien PV et contrôle (puissance non renseignée)",
+                                quantity = 1.0,
+                                unitPriceHt = unitKwc,
+                                sortOrder = 0
+                            )
+                        )
+                    }
+                }
+                MaintenanceBillingMode.FORFAIT -> {
+                    dao.insertLine(
+                        DocumentLine(
+                            documentId = docId,
+                            label = "Entretien PV et contrôle — forfait",
+                            quantity = 1.0,
+                            unitPriceHt = forfaitMaint,
+                            sortOrder = 0
+                        )
                     )
-                )
-            } else {
-                // Pas de puissance : ligne unitaire à saisir / compléter
-                dao.insertLine(
-                    DocumentLine(
-                        documentId = docId,
-                        label = "Entretien PV et contrôle (puissance non renseignée)",
-                        quantity = 1.0,
-                        unitPriceHt = unit,
-                        sortOrder = 0
-                    )
-                )
+                }
             }
-            // Déplacement aller simple automatique si distance connue
-            var oneWay = client?.distanceKm ?: 0.0
-            if (oneWay <= 0 && client != null && company.address.isNotBlank()) {
-                // distance en cache uniquement ici (pas de Context pour géocoder)
-                oneWay = client.distanceKm
-            }
+            // Déplacement auto selon réglage A/R ou aller simple
+            val oneWay = client?.distanceKm ?: 0.0
             if (oneWay > 0 && company.travelRatePerKmHt > 0) {
-                val km = oneWay // aller simple
+                val isRt = company.travelRoundTripDefault
+                val km = if (isRt) oneWay * 2 else oneWay
+                val traj = if (isRt) "A/R" else "Aller simple"
                 val ht = (km * company.travelRatePerKmHt).round2()
                 val site = client?.siteAddress?.ifBlank { client.billingAddress }.orEmpty()
                 val label = buildString {
-                    append("Déplacement Aller simple — ${km.round2()} km")
+                    append("Déplacement $traj — ${km.round2()} km")
                     append(" × ${company.travelRatePerKmHt.round2()} € HT/km")
                     if (company.address.isNotBlank() && site.isNotBlank()) {
                         append("\n${company.address.trim()} → ${site.trim()}")
