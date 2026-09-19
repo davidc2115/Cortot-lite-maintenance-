@@ -13,11 +13,9 @@ import kotlin.math.sqrt
 
 /**
  * Estimation distance route (km) entre deux adresses.
- * Utilise le Geocoder Android (OpenStreetMap / services système)
- * puis un facteur route ~1.35 sur la distance à vol d'oiseau.
+ * Geocoder Android + facteur route ~1.35 sur la distance à vol d'oiseau.
  */
 object Distance {
-    /** Facteur vol d'oiseau → route (moyenne France métropolitaine). */
     private const val ROAD_FACTOR = 1.35
 
     data class Result(
@@ -27,7 +25,7 @@ object Distance {
         val toResolved: String
     )
 
-    suspend @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION")
     suspend fun estimate(
         context: Context,
         fromAddress: String,
