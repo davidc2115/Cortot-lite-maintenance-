@@ -157,6 +157,14 @@ class Repo(private val dao: AppDao) {
                 append("\n${company.address.trim()} → ${site.trim()}")
             }
         }
+        // Remplace l'ancienne ligne déplacement au lieu d'empiler
+        dao.lines(documentId)
+            .filter { it.label.startsWith("Déplacement") }
+            .forEach { dao.deleteLine(it) }
+        dao.travelsForDocument(documentId)
+            .filter { it.mode == TravelMode.KM }
+            .forEach { dao.deleteTravel(it) }
+
         val line = DocumentLine(
             documentId = documentId,
             label = label,
@@ -164,7 +172,6 @@ class Repo(private val dao: AppDao) {
             unitPriceHt = ht
         )
         val id = dao.insertLine(line)
-        // Historise aussi dans travels
         dao.insertTravel(
             Travel(
                 clientId = clientId,

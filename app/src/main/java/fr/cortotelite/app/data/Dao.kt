@@ -88,6 +88,9 @@ interface AppDao {
     @Query("SELECT * FROM travels WHERE clientId = :clientId ORDER BY date DESC")
     fun travelsFor(clientId: Long): Flow<List<Travel>>
 
+    @Query("SELECT * FROM travels WHERE documentId = :documentId")
+    suspend fun travelsForDocument(documentId: Long): List<Travel>
+
     @Insert
     suspend fun insertTravel(travel: Travel): Long
 

@@ -307,6 +307,7 @@ fun DocumentsScreen(repo: Repo, nav: NavController) {
     val scope = rememberCoroutineScope()
     var pick by remember { mutableStateOf(false) }
     var kind by remember { mutableStateOf(DocumentKind.DEVIS) }
+    var confirmDeleteDoc by remember { mutableStateOf<Document?>(null) }
     Scaffold(
         topBar = { TopAppBar(title = { Text("Devis & factures") }) },
         floatingActionButton = {
@@ -339,15 +340,50 @@ fun DocumentsScreen(repo: Repo, nav: NavController) {
             LazyColumn {
                 items(docs.filter { it.kind == kind }, key = { it.id }) { d ->
                     val client = clients.find { it.id == d.clientId }
-                    Card(Modifier.padding(12.dp).fillMaxWidth().clickable { nav.navigate("doc/${d.id}") }) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text("${d.number} · ${d.status}", style = MaterialTheme.typography.titleMedium)
-                            Text(client?.displayName().orEmpty())
-                            if (d.title.isNotBlank()) Text(d.title)
-                            Text("TVA ${d.vatRate.toInt()} % — ouvrir pour aperçu détaillé")
+                    Card(Modifier.padding(12.dp).fillMaxWidth()) {
+                        Row(
+                            Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                Modifier
+                                    .weight(1f)
+                                    .clickable { nav.navigate("doc/${d.id}") }
+                                    .padding(8.dp)
+                            ) {
+                                Text("${d.number} · ${d.status}", style = MaterialTheme.typography.titleMedium)
+                                Text(client?.displayName().orEmpty())
+                                if (d.title.isNotBlank()) Text(d.title)
+                                Text("TVA ${d.vatRate} %")
+                            }
+                            IconButton(onClick = { confirmDeleteDoc = d }) {
+                                Icon(Icons.Outlined.Delete, "Supprimer")
+                            }
                         }
                     }
                 }
+            }
+            confirmDeleteDoc?.let { target ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmDeleteDoc = null },
+                    title = { Text("Supprimer ce document ?") },
+                    text = {
+                        Text(
+                            "« ${target.number} » (${if (target.kind == DocumentKind.DEVIS) "devis" else "facture"}) sera définitivement supprimé."
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            scope.launch {
+                                repo.deleteDocument(target)
+                                confirmDeleteDoc = null
+                            }
+                        }) { Text("Supprimer") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmDeleteDoc = null }) { Text("Annuler") }
+                    }
+                )
             }
         }
     }
@@ -363,6 +399,7 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
     val context = LocalContext.current
     var travelMsg by remember { mutableStateOf<String?>(null) }
     var showPreview by remember { mutableStateOf(true) }
+    var confirmDeleteDoc by remember { mutableStateOf(false) }
     var disc by remember { mutableStateOf("0") }
     var vatDisc by remember { mutableStateOf("0") }
     var label by remember { mutableStateOf("") }
@@ -393,8 +430,8 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                         TextButton(onClick = { showPreview = !showPreview }) {
                             Text(if (showPreview) "Éditer" else "Document")
                         }
-                        IconButton(onClick = { scope.launch { repo.deleteDocument(doc); nav.popBackStack() } }) {
-                            Icon(Icons.Outlined.Delete, null)
+                        IconButton(onClick = { confirmDeleteDoc = true }) {
+                            Icon(Icons.Outlined.Delete, "Supprimer")
                         }
                     }
                 }
@@ -567,14 +604,14 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                         scope.launch {
                             travelMsg = "Calcul…"
                             val line = repo.addAutoTravelLine(context, doc.id, client.id, roundTrip = true)
-                            travelMsg = if (line != null) "Ligne A/R ajoutée" else "Impossible : renseigne adresse société (onglet Société) et adresse chantier"
+                            travelMsg = if (line != null) "Déplacement A/R mis à jour" else "Impossible : renseigne adresse société (onglet Société) et adresse chantier"
                         }
                     }, modifier = Modifier.weight(1f)) { Text("Dépl. A/R auto") }
                     OutlinedButton(onClick = {
                         scope.launch {
                             travelMsg = "Calcul…"
                             val line = repo.addAutoTravelLine(context, doc.id, client.id, roundTrip = false)
-                            travelMsg = if (line != null) "Ligne aller simple ajoutée" else "Impossible : vérifie les adresses"
+                            travelMsg = if (line != null) "Déplacement aller simple mis à jour" else "Impossible : vérifie les adresses"
                         }
                     }, modifier = Modifier.weight(1f)) { Text("Aller simple") }
                 }
@@ -591,6 +628,29 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                         if (invoiceId != null) nav.navigate("doc/$invoiceId")
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text("Transformer en facture") }
+            }
+            OutlinedButton(
+                onClick = { confirmDeleteDoc = true },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Supprimer ce document") }
+            if (confirmDeleteDoc) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmDeleteDoc = false },
+                    title = { Text("Supprimer ?") },
+                    text = { Text("Le document ${doc.number} et ses lignes seront définitivement supprimés.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            scope.launch {
+                                repo.deleteDocument(doc)
+                                confirmDeleteDoc = false
+                                nav.popBackStack()
+                            }
+                        }) { Text("Supprimer") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmDeleteDoc = false }) { Text("Annuler") }
+                    }
+                )
             }
         }
     }
