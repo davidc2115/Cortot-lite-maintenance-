@@ -31,8 +31,16 @@ class Repo(private val dao: AppDao) {
 
     suspend fun deleteClient(client: Client) = dao.deleteClient(client)
 
-    suspend fun createDocument(clientId: Long, kind: DocumentKind, vatRate: Double, title: String): Long {
+    suspend fun createDocument(clientId: Long, kind: DocumentKind, vatRate: Double? = null, title: String = "Installation / maintenance PV"): Long {
         val company = dao.companyNow() ?: CompanySettings()
+        val client = dao.client(clientId)
+        // TVA auto : particulier → taux réduit, professionnel → taux normal
+        val autoVat = when (client?.type) {
+            ClientType.PARTICULIER -> company.reducedVatRate
+            ClientType.PROFESSIONNEL -> company.defaultVatRate
+            null -> company.defaultVatRate
+        }
+        val rate = vatRate ?: autoVat
         val year = Calendar.getInstance().get(Calendar.YEAR)
         val (prefix, n) = if (kind == DocumentKind.DEVIS) {
             "D" to company.nextQuoteNumber
@@ -44,9 +52,24 @@ class Repo(private val dao: AppDao) {
             company.copy(nextQuoteNumber = n + 1)
         else company.copy(nextInvoiceNumber = n + 1)
         dao.upsertCompany(updated)
-        return dao.insertDocument(
-            Document(clientId = clientId, kind = kind, number = number, vatRate = vatRate, title = title)
+        val docId = dao.insertDocument(
+            Document(clientId = clientId, kind = kind, number = number, vatRate = rate, title = title)
         )
+        // Ligne auto selon puissance installation (kWc × tarif société)
+        val install = dao.installationFor(clientId)
+        val kwc = install?.powerKwc ?: 0.0
+        if (kwc > 0 && company.pricePerKwcHt > 0) {
+            dao.insertLine(
+                DocumentLine(
+                    documentId = docId,
+                    label = "Installation photovoltaïque — ${kwc} kWc × ${company.pricePerKwcHt.round2()} € HT/kWc",
+                    quantity = kwc,
+                    unitPriceHt = company.pricePerKwcHt,
+                    sortOrder = 0
+                )
+            )
+        }
+        return docId
     }
 
     suspend fun convertQuoteToInvoice(quoteId: Long): Long? {
@@ -156,6 +179,15 @@ class Repo(private val dao: AppDao) {
         return line.copy(id = id)
     }
 
-    fun documentTotals(lines: List<DocumentLine>, vatRate: Double) =
-        breakdown(lines.sumOf { it.quantity * it.unitPriceHt }, vatRate)
+    fun documentTotals(
+        lines: List<DocumentLine>,
+        vatRate: Double,
+        discountPercent: Double = 0.0,
+        vatDiscountPercent: Double = 0.0
+    ) = breakdown(
+        lines.sumOf { it.quantity * it.unitPriceHt },
+        vatRate,
+        discountPercent,
+        vatDiscountPercent
+    )
 }

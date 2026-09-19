@@ -29,6 +29,8 @@ data class CompanySettings(
     val travelHourlyHt: Double = 55.0,
     /** Si true, le calcul auto propose l'aller-retour (km × 2). */
     val travelRoundTripDefault: Boolean = true,
+    /** Prix HT par kWc pour facturation auto de l'installation. */
+    val pricePerKwcHt: Double = 1200.0,
     val nextQuoteNumber: Int = 1,
     val nextInvoiceNumber: Int = 1
 )
@@ -93,6 +95,10 @@ data class Document(
     val status: DocumentStatus = DocumentStatus.BROUILLON,
     val title: String = "",
     val vatRate: Double = 20.0,
+    /** Remise commerciale % sur le total HT. */
+    val discountPercent: Double = 0.0,
+    /** Remise % sur le montant de TVA. */
+    val vatDiscountPercent: Double = 0.0,
     val issuedAt: Long = System.currentTimeMillis(),
     val notes: String = "",
     val convertedFromQuoteId: Long? = null

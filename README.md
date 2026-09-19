@@ -52,3 +52,12 @@ Ce n’est pas un logiciel de comptabilité certifié. Vérifie les mentions lé
 5. Onglet Déplacements : en choisissant un client, les km se préremplissent.
 
 Estimation = distance à vol d'oiseau × **1,35** (facteur route). Affinable à la main sur la fiche client.
+
+## Devis / factures détaillés
+
+- Affichage **document complet** à l’ouverture (bouton Éditer pour les lignes)
+- **TVA auto** : particulier → taux réduit (réglages), pro → taux normal
+- **Ligne auto kWc** : puissance installation × prix HT/kWc (Société)
+- **Remises** : commerciale % sur HT, et/ou % sur la TVA
+- **PDF** : partager / enregistrer / envoyer
+- **E-mail** et **Appeler** le client depuis la fiche document

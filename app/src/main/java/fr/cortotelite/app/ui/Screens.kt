@@ -62,6 +62,7 @@ import fr.cortotelite.app.data.Travel
 import fr.cortotelite.app.data.TravelMode
 import fr.cortotelite.app.util.euro
 import fr.cortotelite.app.util.Distance
+import fr.cortotelite.app.util.PdfExport
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -325,7 +326,7 @@ fun DocumentsScreen(repo: Repo, nav: NavController) {
                             TextButton(onClick = {
                                 scope.launch {
                                     val vat = company?.defaultVatRate ?: 20.0
-                                    val newId = repo.createDocument(c.id, kind, vat, "Maintenance PV")
+                                    val newId = repo.createDocument(c.id, kind, title = "Installation / maintenance PV")
                                     pick = false
                                     nav.navigate("doc/$newId")
                                 }
@@ -361,7 +362,9 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var travelMsg by remember { mutableStateOf<String?>(null) }
-    var showPreview by remember { mutableStateOf(false) }
+    var showPreview by remember { mutableStateOf(true) }
+    var disc by remember { mutableStateOf("0") }
+    var vatDisc by remember { mutableStateOf("0") }
     var label by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var price by remember { mutableStateOf("") }
@@ -370,7 +373,11 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
     val lines = packed?.lines.orEmpty()
     val client = clients.find { it.id == doc?.clientId }
     val preferTtc = client?.type == ClientType.PARTICULIER
-    val totals = repo.documentTotals(lines, doc?.vatRate ?: 20.0)
+    LaunchedEffect(doc?.id, doc?.discountPercent, doc?.vatDiscountPercent) {
+        disc = (doc?.discountPercent ?: 0.0).toString()
+        vatDisc = (doc?.vatDiscountPercent ?: 0.0).toString()
+    }
+    val totals = repo.documentTotals(lines, doc?.vatRate ?: 20.0, doc?.discountPercent ?: 0.0, doc?.vatDiscountPercent ?: 0.0)
 
     Scaffold(
         topBar = {
@@ -384,7 +391,7 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                 actions = {
                     if (doc != null) {
                         TextButton(onClick = { showPreview = !showPreview }) {
-                            Text(if (showPreview) "Éditer" else "Aperçu")
+                            Text(if (showPreview) "Éditer" else "Document")
                         }
                         IconButton(onClick = { scope.launch { repo.deleteDocument(doc); nav.popBackStack() } }) {
                             Icon(Icons.Outlined.Delete, null)
@@ -404,18 +411,62 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
                     lines = lines,
                     totals = totals
                 )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        val co = company ?: fr.cortotelite.app.data.CompanySettings()
+                        val file = PdfExport.buildPdf(context, co, client, doc, lines, totals)
+                        PdfExport.sharePdf(context, file, "${doc.number}")
+                    }, modifier = Modifier.weight(1f)) { Text("PDF / partager") }
+                    OutlinedButton(onClick = { showPreview = false }, modifier = Modifier.weight(1f)) {
+                        Text("Éditer lignes")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        enabled = !client?.email.isNullOrBlank(),
+                        onClick = {
+                            val co = company ?: fr.cortotelite.app.data.CompanySettings()
+                            val file = PdfExport.buildPdf(context, co, client, doc, lines, totals)
+                            PdfExport.sharePdf(context, file, "${doc.number}", client?.email)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("E-mail client") }
+                    OutlinedButton(
+                        enabled = !client?.phoneMobile.isNullOrBlank() || !client?.phoneLandline.isNullOrBlank(),
+                        onClick = {
+                            PdfExport.dial(context, client?.phoneMobile?.ifBlank { null } ?: client?.phoneLandline.orEmpty())
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Appeler") }
+                }
                 return@Column
             }
             Text(client?.displayName().orEmpty(), style = MaterialTheme.typography.titleMedium)
             Text("${if (doc.kind == DocumentKind.DEVIS) "Devis" else "Facture"} · ${doc.status}")
             Text("TVA ${doc.vatRate.toInt()} % — saisie ${if (preferTtc) "orientée TTC (particulier)" else "orientée HT (pro)"}")
+            Text("TVA (auto selon type client à la création — modifiable)")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(0.0, 10.0, 20.0).forEach { rate ->
+                listOf(0.0, 5.5, 10.0, 20.0).forEach { rate ->
                     FilterChip(doc.vatRate == rate, {
                         scope.launch { repo.updateDocument(doc.copy(vatRate = rate)) }
-                    }, label = { Text("${rate.toInt()} %") })
+                    }, label = { Text("${rate}%") })
                 }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Field("Remise commerciale %", disc, KeyboardType.Decimal, Modifier.weight(1f)) { disc = it }
+                Field("Remise TVA %", vatDisc, KeyboardType.Decimal, Modifier.weight(1f)) { vatDisc = it }
+            }
+            OutlinedButton(onClick = {
+                scope.launch {
+                    repo.updateDocument(
+                        doc.copy(
+                            discountPercent = disc.replace(",", ".").toDoubleOrNull() ?: 0.0,
+                            vatDiscountPercent = vatDisc.replace(",", ".").toDoubleOrNull() ?: 0.0
+                        )
+                    )
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("Appliquer les remises") }
             lines.forEach { line ->
                 val lineHt = line.quantity * line.unitPriceHt
                 val b = fr.cortotelite.app.util.breakdown(lineHt, doc.vatRate)
@@ -455,10 +506,49 @@ fun DocumentScreen(repo: Repo, id: Long, nav: NavController) {
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
+                    if (totals.discountPercent > 0) {
+                        Text("HT brut  ${totals.htBrut.euro()}")
+                        Text("Remise commerciale ${totals.discountPercent} %  -${totals.discountHt.euro()}")
+                    }
                     Text("Total HT  ${totals.ht.euro()}")
-                    Text("TVA ${totals.rate.toInt()} %  ${totals.vat.euro()}")
+                    if (totals.vatDiscountPercent > 0) {
+                        Text("TVA brute  ${totals.vatBrut.euro()}")
+                        Text("Remise TVA ${totals.vatDiscountPercent} %  -${totals.vatDiscount.euro()}")
+                    }
+                    Text("TVA ${totals.rate} %  ${totals.vat.euro()}")
                     Text("Total TTC  ${totals.ttc.euro()}", style = MaterialTheme.typography.titleMedium)
                 }
+            }
+            // Télécharger / e-mail / téléphone
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    val co = company ?: fr.cortotelite.app.data.CompanySettings()
+                    val file = PdfExport.buildPdf(context, co, client, doc, lines, totals)
+                    PdfExport.sharePdf(context, file, "${doc.number} — ${client?.let { it.displayName() }.orEmpty()}")
+                }, modifier = Modifier.weight(1f)) { Text("PDF / partager") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    enabled = !client?.email.isNullOrBlank(),
+                    onClick = {
+                        val co = company ?: fr.cortotelite.app.data.CompanySettings()
+                        val file = PdfExport.buildPdf(context, co, client, doc, lines, totals)
+                        PdfExport.sharePdf(
+                            context, file,
+                            subject = "${if (doc.kind == DocumentKind.DEVIS) "Devis" else "Facture"} ${doc.number}",
+                            email = client?.email
+                        )
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("E-mail") }
+                OutlinedButton(
+                    enabled = !client?.phoneMobile.isNullOrBlank() || !client?.phoneLandline.isNullOrBlank(),
+                    onClick = {
+                        val phone = client?.phoneMobile?.ifBlank { null } ?: client?.phoneLandline.orEmpty()
+                        PdfExport.dial(context, phone)
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Appeler") }
             }
             // Déplacement automatique basé sur la distance client
             val rate = company?.travelRatePerKmHt ?: 0.80
@@ -628,6 +718,7 @@ fun SettingsScreen(repo: Repo) {
     var km by remember { mutableStateOf("0.80") }
     var forfait by remember { mutableStateOf("45") }
     var hourly by remember { mutableStateOf("55") }
+    var priceKwc by remember { mutableStateOf("1200") }
     var roundTrip by remember { mutableStateOf(true) }
     LaunchedEffect(company) {
         val c = company ?: return@LaunchedEffect
@@ -636,6 +727,7 @@ fun SettingsScreen(repo: Repo) {
         vat = c.defaultVatRate.toString(); vatRed = c.reducedVatRate.toString()
         km = c.travelRatePerKmHt.toString(); forfait = c.travelForfaitHt.toString()
         hourly = c.travelHourlyHt.toString()
+        priceKwc = c.pricePerKwcHt.toString()
         roundTrip = c.travelRoundTripDefault
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Société") }) }) { pad ->
@@ -647,8 +739,13 @@ fun SettingsScreen(repo: Repo) {
             Field("N° TVA", tva) { tva = it }
             Field("Téléphone", phone) { phone = it }
             Field("E-mail", email) { email = it }
-            Field("TVA normale %", vat, KeyboardType.Decimal) { vat = it }
-            Field("TVA réduite %", vatRed, KeyboardType.Decimal) { vatRed = it }
+            Field("TVA pro (normale) %", vat, KeyboardType.Decimal) { vat = it }
+            Field("TVA particulier (réduite) %", vatRed, KeyboardType.Decimal) { vatRed = it }
+            Field("Prix HT / kWc (facture auto)", priceKwc, KeyboardType.Decimal) { priceKwc = it }
+            Text(
+                "À la création d'un devis/facture : TVA auto selon type client + ligne auto si puissance kWc renseignée.",
+                style = MaterialTheme.typography.bodySmall
+            )
             Field("Déplacement € HT / km", km, KeyboardType.Decimal) { km = it }
             Field("Forfait déplacement € HT", forfait, KeyboardType.Decimal) { forfait = it }
             Field("Heure déplacement € HT", hourly, KeyboardType.Decimal) { hourly = it }
@@ -671,7 +768,8 @@ fun SettingsScreen(repo: Repo) {
                             travelRatePerKmHt = km.replace(",", ".").toDoubleOrNull() ?: 0.8,
                             travelForfaitHt = forfait.replace(",", ".").toDoubleOrNull() ?: 45.0,
                             travelHourlyHt = hourly.replace(",", ".").toDoubleOrNull() ?: 55.0,
-                            travelRoundTripDefault = roundTrip
+                            travelRoundTripDefault = roundTrip,
+                            pricePerKwcHt = priceKwc.replace(",", ".").toDoubleOrNull() ?: 1200.0
                         )
                     )
                 }
@@ -747,8 +845,16 @@ fun DocumentPreview(
             Text("—".repeat(28), style = MaterialTheme.typography.bodySmall)
             // Totaux
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                if (totals.discountPercent > 0) {
+                    Text("HT brut : ${totals.htBrut.euro()}")
+                    Text("Remise commerciale ${totals.discountPercent} % : -${totals.discountHt.euro()}")
+                }
                 Text("Total HT : ${totals.ht.euro()}")
-                Text("TVA ${totals.rate.toInt()} % : ${totals.vat.euro()}")
+                if (totals.vatDiscountPercent > 0) {
+                    Text("TVA brute : ${totals.vatBrut.euro()}")
+                    Text("Remise TVA ${totals.vatDiscountPercent} % : -${totals.vatDiscount.euro()}")
+                }
+                Text("TVA ${totals.rate} % : ${totals.vat.euro()}")
                 Text("Total TTC : ${totals.ttc.euro()}", style = MaterialTheme.typography.titleMedium)
             }
             if (document.notes.isNotBlank()) {

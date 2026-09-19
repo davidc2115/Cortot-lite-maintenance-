@@ -30,12 +30,20 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE company ADD COLUMN pricePerKwcHt REAL NOT NULL DEFAULT 1200.0")
+        db.execSQL("ALTER TABLE documents ADD COLUMN discountPercent REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE documents ADD COLUMN vatDiscountPercent REAL NOT NULL DEFAULT 0.0")
+    }
+}
+
 @Database(
     entities = [
         CompanySettings::class, Client::class, Installation::class,
         Document::class, DocumentLine::class, Travel::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -51,7 +59,7 @@ abstract class AppDb : RoomDatabase() {
                     context.applicationContext,
                     AppDb::class.java,
                     "cortot_elite.db"
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
