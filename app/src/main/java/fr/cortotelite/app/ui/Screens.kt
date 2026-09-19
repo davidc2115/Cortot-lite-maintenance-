@@ -816,7 +816,7 @@ fun SettingsScreen(repo: Repo) {
             Field("TVA particulier (réduite) %", vatRed, KeyboardType.Decimal) { vatRed = it }
             Field("Tarif entretien PV / contrôle HT (€)", priceKwc, KeyboardType.Decimal) { priceKwc = it }
             Text(
-                "À la création : ligne « Entretien PV et contrôle », déplacement aller simple si distance connue, TVA auto selon type client.",
+                "À la création : ligne entretien = puissance kWc × tarif €/kWc (ex. 2 kWc × 40 €), déplacement aller simple si distance, TVA auto selon type client.",
                 style = MaterialTheme.typography.bodySmall
             )
             Field("Déplacement € HT / km", km, KeyboardType.Decimal) { km = it }
@@ -842,7 +842,7 @@ fun SettingsScreen(repo: Repo) {
                             travelForfaitHt = forfait.replace(",", ".").toDoubleOrNull() ?: 45.0,
                             travelHourlyHt = hourly.replace(",", ".").toDoubleOrNull() ?: 55.0,
                             travelRoundTripDefault = roundTrip,
-                            pricePerKwcHt = priceKwc.replace(",", ".").toDoubleOrNull() ?: 1200.0
+                            pricePerKwcHt = priceKwc.replace(",", ".").toDoubleOrNull() ?: 40.0
                         )
                     )
                 }

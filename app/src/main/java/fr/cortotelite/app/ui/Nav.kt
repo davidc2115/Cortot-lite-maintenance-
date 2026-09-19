@@ -28,31 +28,41 @@ fun CortotRoot(repo: Repo) {
     val nav = rememberNavController()
     val back by nav.currentBackStackEntryAsState()
     val route = back?.destination?.route.orEmpty()
-    val tabs = listOf("clients", "docs", "travels", "settings")
+
+    // Onglet actif même sur les écrans imbriqués (client/123, doc/45…)
+    val selectedTab = when {
+        route == "clients" || route.startsWith("client") -> "clients"
+        route == "docs" || route.startsWith("doc") -> "docs"
+        route == "travels" -> "travels"
+        route == "settings" -> "settings"
+        else -> ""
+    }
+    val showBottomBar = selectedTab.isNotEmpty()
+
     Scaffold(
         bottomBar = {
-            if (tabs.any { route == it }) {
+            if (showBottomBar) {
                 NavigationBar {
                     NavigationBarItem(
-                        selected = route == "clients",
+                        selected = selectedTab == "clients",
                         onClick = { nav.tab("clients") },
                         icon = { Icon(Icons.Outlined.People, null) },
                         label = { Text("Clients") }
                     )
                     NavigationBarItem(
-                        selected = route == "docs",
+                        selected = selectedTab == "docs",
                         onClick = { nav.tab("docs") },
                         icon = { Icon(Icons.Outlined.Description, null) },
                         label = { Text("Devis / Factures") }
                     )
                     NavigationBarItem(
-                        selected = route == "travels",
+                        selected = selectedTab == "travels",
                         onClick = { nav.tab("travels") },
                         icon = { Icon(Icons.Outlined.DirectionsCar, null) },
                         label = { Text("Déplacements") }
                     )
                     NavigationBarItem(
-                        selected = route == "settings",
+                        selected = selectedTab == "settings",
                         onClick = { nav.tab("settings") },
                         icon = { Icon(Icons.Outlined.Settings, null) },
                         label = { Text("Société") }
@@ -78,9 +88,13 @@ fun CortotRoot(repo: Repo) {
     }
 }
 
+/** Change d'onglet en nettoyant la pile (retour fiable vers Clients, etc.). */
 private fun androidx.navigation.NavController.tab(route: String) {
     navigate(route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
+        popUpTo(graph.findStartDestination().id) {
+            saveState = true
+            inclusive = false
+        }
         launchSingleTop = true
         restoreState = true
     }

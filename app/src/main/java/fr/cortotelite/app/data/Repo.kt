@@ -62,17 +62,32 @@ class Repo(private val dao: AppDao) {
             Document(clientId = clientId, kind = kind, number = number, vatRate = rate, title = title)
         )
         if (autoLines) {
-            // Ligne de base entretien / contrôle
+            // Entretien / contrôle facturé à la puissance : qty = kWc × prix HT/kWc (ex. 3 × 40 €)
             val unit = if (company.pricePerKwcHt > 0) company.pricePerKwcHt else 40.0
-            dao.insertLine(
-                DocumentLine(
-                    documentId = docId,
-                    label = "Entretien PV et contrôle",
-                    quantity = 1.0,
-                    unitPriceHt = unit,
-                    sortOrder = 0
+            val install = dao.installationFor(clientId)
+            val kwc = install?.powerKwc ?: 0.0
+            if (kwc > 0) {
+                dao.insertLine(
+                    DocumentLine(
+                        documentId = docId,
+                        label = "Entretien PV et contrôle — ${kwc} kWc × ${unit.round2()} € HT/kWc",
+                        quantity = kwc,
+                        unitPriceHt = unit,
+                        sortOrder = 0
+                    )
                 )
-            )
+            } else {
+                // Pas de puissance : ligne unitaire à saisir / compléter
+                dao.insertLine(
+                    DocumentLine(
+                        documentId = docId,
+                        label = "Entretien PV et contrôle (puissance non renseignée)",
+                        quantity = 1.0,
+                        unitPriceHt = unit,
+                        sortOrder = 0
+                    )
+                )
+            }
             // Déplacement aller simple automatique si distance connue
             var oneWay = client?.distanceKm ?: 0.0
             if (oneWay <= 0 && client != null && company.address.isNotBlank()) {
