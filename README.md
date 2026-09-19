@@ -69,3 +69,11 @@ Tu peux installer chaque nouvelle APK **par-dessus** l’ancienne sans perdre le
 
 - `versionCode` doit augmenter à chaque release (actuel : **2** / `1.1.0`)
 - **Une seule fois** : si l’APK déjà installée venait d’un ancien build (autre signature), désinstalle-la une dernière fois, puis réinstalle. Ensuite plus besoin.
+
+## Installation / mises à jour
+
+L’APK est signé avec un **keystore fixe** (`app/cortot-debug.keystore`).  
+Le `versionCode` augmente à **chaque build** GitHub Actions.
+
+- À partir de cette version : tu peux **installer par-dessus** sans désinstaller (données conservées).
+- **Une seule fois** : si une ancienne APK était signée autrement (Android Studio debug local), Android demandera de désinstaller — c’est normal, une seule fois.
