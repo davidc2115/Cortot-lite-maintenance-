@@ -27,6 +27,7 @@ object Distance {
         val toResolved: String
     )
 
+    suspend @Suppress("DEPRECATION")
     suspend fun estimate(
         context: Context,
         fromAddress: String,

@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,13 @@ class Converters {
     @TypeConverter fun toStatus(v: String) = DocumentStatus.valueOf(v)
     @TypeConverter fun fromTravel(v: TravelMode) = v.name
     @TypeConverter fun toTravel(v: String) = TravelMode.valueOf(v)
+}
+
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE clients ADD COLUMN distanceKm REAL NOT NULL DEFAULT 0.0")
+        db.execSQL("ALTER TABLE company ADD COLUMN travelRoundTripDefault INTEGER NOT NULL DEFAULT 1")
+    }
 }
 
 @Database(
@@ -44,14 +52,14 @@ abstract class AppDb : RoomDatabase() {
                     AppDb::class.java,
                     "cortot_elite.db"
                 ).addMigrations(MIGRATION_1_2)
-                .addCallback(object : Callback() {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        super.onCreate(db)
-                        CoroutineScope(Dispatchers.IO).launch {
-                            get(context).dao().upsertCompany(CompanySettings())
+                    .addCallback(object : Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            super.onCreate(db)
+                            CoroutineScope(Dispatchers.IO).launch {
+                                get(context).dao().upsertCompany(CompanySettings())
+                            }
                         }
-                    }
-                }).build().also { instance = it }
+                    }).build().also { instance = it }
             }
     }
 }

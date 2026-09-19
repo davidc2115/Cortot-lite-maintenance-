@@ -130,8 +130,7 @@ class Repo(private val dao: AppDao) {
             append("Déplacement $traj — ${km.round2()} km")
             append(" × ${company.travelRatePerKmHt.round2()} € HT/km")
             if (company.address.isNotBlank() && site.isNotBlank()) {
-                append("
-${company.address.trim()} → ${site.trim()}")
+                append("\n${company.address.trim()} → ${site.trim()}")
             }
         }
         val line = DocumentLine(
@@ -150,8 +149,7 @@ ${company.address.trim()} → ${site.trim()}")
                 kilometers = km,
                 amountHt = ht,
                 vatRate = company.defaultVatRate,
-                comment = label.replace("
-", " | ")
+                comment = label.replace("\n", " | ")
             )
         )
         return line.copy(id = id)
