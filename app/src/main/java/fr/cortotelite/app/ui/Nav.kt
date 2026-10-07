@@ -2,6 +2,7 @@ package fr.cortotelite.app.ui
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.People
@@ -29,11 +30,11 @@ fun CortotRoot(repo: Repo) {
     val back by nav.currentBackStackEntryAsState()
     val route = back?.destination?.route.orEmpty()
 
-    // Onglet actif même sur les écrans imbriqués (client/123, doc/45…)
     val selectedTab = when {
         route == "clients" || route.startsWith("client") -> "clients"
         route == "docs" || route.startsWith("doc") -> "docs"
         route == "travels" -> "travels"
+        route == "employees" || route.startsWith("employee") || route.startsWith("payslips") -> "employees"
         route == "settings" -> "settings"
         else -> ""
     }
@@ -56,10 +57,16 @@ fun CortotRoot(repo: Repo) {
                         label = { Text("Devis / Factures") }
                     )
                     NavigationBarItem(
+                        selected = selectedTab == "employees",
+                        onClick = { nav.tab("employees") },
+                        icon = { Icon(Icons.Outlined.Badge, null) },
+                        label = { Text("Employés") }
+                    )
+                    NavigationBarItem(
                         selected = selectedTab == "travels",
                         onClick = { nav.tab("travels") },
                         icon = { Icon(Icons.Outlined.DirectionsCar, null) },
-                        label = { Text("Déplacements") }
+                        label = { Text("Dépl.") }
                     )
                     NavigationBarItem(
                         selected = selectedTab == "settings",
@@ -84,11 +91,19 @@ fun CortotRoot(repo: Repo) {
             ) { DocumentScreen(repo, it.arguments!!.getLong("id"), nav) }
             composable("travels") { TravelsScreen(repo, nav) }
             composable("settings") { SettingsScreen(repo) }
+            composable("employees") { EmployeesScreen(repo, nav) }
+            composable(
+                "employee/{id}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType })
+            ) { EmployeeEditScreen(repo, it.arguments!!.getLong("id"), nav) }
+            composable(
+                "payslips/{employeeId}",
+                arguments = listOf(navArgument("employeeId") { type = NavType.LongType })
+            ) { PayslipsScreen(repo, it.arguments!!.getLong("employeeId"), nav) }
         }
     }
 }
 
-/** Change d'onglet en nettoyant la pile (retour fiable vers Clients, etc.). */
 private fun androidx.navigation.NavController.tab(route: String) {
     navigate(route) {
         popUpTo(graph.findStartDestination().id) {

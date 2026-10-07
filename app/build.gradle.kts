@@ -14,7 +14,7 @@ android {
         targetSdk = 35
         // versionCode incrémenté à chaque build CI (-PversionCode=N) pour installer en MAJ sans désinstaller
         versionCode = (project.findProperty("versionCode") as String?)?.toIntOrNull() ?: 10
-        versionName = (project.findProperty("versionName") as String?) ?: "1.3.0"
+        versionName = (project.findProperty("versionName") as String?) ?: "1.4.0"
     }
     signingConfigs {
         create("cortot") {

@@ -9,9 +9,19 @@ import androidx.room.Relation
 
 enum class ClientType { PARTICULIER, PROFESSIONNEL }
 enum class DocumentKind { DEVIS, FACTURE }
-enum class DocumentStatus { BROUILLON, ENVOYE, ACCEPTE, REFUSE, PAYE }
+enum class DocumentStatus {
+    BROUILLON,
+    ENVOYE,
+    ACCEPTE,
+    REFUSE,
+    EN_ATTENTE,   // facture envoyée, paiement en attente
+    RETARD,       // dépassement délai de paiement
+    PAYE
+}
 enum class TravelMode { FORFAIT, KM, TEMPS }
 enum class MaintenanceBillingMode { PUISSANCE, FORFAIT }
+enum class EmployeeRole { TECHNICIEN, ADMIN, COMPTABLE, DIRIGEANT }
+enum class PayslipStatus { BROUILLON, VALIDE, PAYE }
 
 @Entity(tableName = "company")
 data class CompanySettings(
@@ -28,16 +38,20 @@ data class CompanySettings(
     val travelRatePerKmHt: Double = 0.80,
     val travelForfaitHt: Double = 45.0,
     val travelHourlyHt: Double = 55.0,
-    /** Si true, le calcul auto propose l'aller-retour (km × 2). */
     val travelRoundTripDefault: Boolean = true,
-    /** Facturation entretien : par puissance (kWc) ou forfait. */
     val maintenanceBillingMode: MaintenanceBillingMode = MaintenanceBillingMode.PUISSANCE,
-    /** Prix HT par kWc (mode puissance). */
     val pricePerKwcHt: Double = 40.0,
-    /** Forfait HT entretien / contrôle (mode forfait). */
     val maintenanceForfaitHt: Double = 80.0,
     val nextQuoteNumber: Int = 1,
-    val nextInvoiceNumber: Int = 1
+    val nextInvoiceNumber: Int = 1,
+    /** Délai de paiement en jours (au-delà → RETARD). */
+    val paymentDelayDays: Int = 30,
+    /** Part des CA payés reversée en commissions / variable paie (0-100). */
+    val commissionPercent: Double = 10.0,
+    /** Clés API Gemini (séparées par | ou \\n). Rotation automatique. */
+    val geminiApiKeys: String = "",
+    /** Modèle Gemini par défaut. */
+    val geminiModel: String = "gemini-2.0-flash"
 )
 
 @Entity(tableName = "clients")
@@ -53,7 +67,6 @@ data class Client(
     val phoneMobile: String = "",
     val email: String = "",
     val notes: String = "",
-    /** Distance aller simple société → chantier (km), mise en cache. 0 = inconnu. */
     val distanceKm: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis()
 )
@@ -100,11 +113,11 @@ data class Document(
     val status: DocumentStatus = DocumentStatus.BROUILLON,
     val title: String = "",
     val vatRate: Double = 20.0,
-    /** Remise commerciale % sur le total HT. */
     val discountPercent: Double = 0.0,
-    /** Remise % sur le montant de TVA. */
     val vatDiscountPercent: Double = 0.0,
     val issuedAt: Long = System.currentTimeMillis(),
+    val dueAt: Long? = null,
+    val paidAt: Long? = null,
     val notes: String = "",
     val convertedFromQuoteId: Long? = null
 )
@@ -149,6 +162,77 @@ data class Travel(
     val comment: String = ""
 )
 
+@Entity(tableName = "employees")
+data class Employee(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val lastName: String = "",
+    val firstName: String = "",
+    val role: EmployeeRole = EmployeeRole.TECHNICIEN,
+    val email: String = "",
+    val phone: String = "",
+    val address: String = "",
+    val iban: String = "",
+    val socialSecurityNumber: String = "",
+    val hireDate: Long = System.currentTimeMillis(),
+    val baseSalaryBrut: Double = 0.0,
+    val commissionPercent: Double = 0.0,
+    val dividendPercent: Double = 0.0,
+    val active: Boolean = true,
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "payslips",
+    foreignKeys = [ForeignKey(
+        entity = Employee::class,
+        parentColumns = ["id"],
+        childColumns = ["employeeId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("employeeId"), Index(value = ["employeeId", "year", "month"], unique = true)]
+)
+data class Payslip(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val employeeId: Long,
+    val year: Int,
+    val month: Int,
+    val status: PayslipStatus = PayslipStatus.BROUILLON,
+    val baseBrut: Double = 0.0,
+    val commissionBrut: Double = 0.0,
+    val primesBrut: Double = 0.0,
+    val chargesSalariales: Double = 0.0,
+    val netAPayer: Double = 0.0,
+    val caPayeHt: Double = 0.0,
+    val caEnAttenteHt: Double = 0.0,
+    val caRetardHt: Double = 0.0,
+    val notes: String = "",
+    val generatedAt: Long = System.currentTimeMillis(),
+    val paidAt: Long? = null
+)
+
+@Entity(
+    tableName = "dividends",
+    foreignKeys = [ForeignKey(
+        entity = Employee::class,
+        parentColumns = ["id"],
+        childColumns = ["employeeId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("employeeId")]
+)
+data class Dividend(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val employeeId: Long,
+    val year: Int,
+    val amount: Double = 0.0,
+    val percent: Double = 0.0,
+    val baseCaHt: Double = 0.0,
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val paidAt: Long? = null
+)
+
 data class ClientWithInstall(
     @Embedded val client: Client,
     @Relation(parentColumn = "id", entityColumn = "clientId")
@@ -159,4 +243,10 @@ data class DocumentWithLines(
     @Embedded val document: Document,
     @Relation(parentColumn = "id", entityColumn = "documentId")
     val lines: List<DocumentLine>
+)
+
+data class EmployeeWithPayslips(
+    @Embedded val employee: Employee,
+    @Relation(parentColumn = "id", entityColumn = "employeeId")
+    val payslips: List<Payslip>
 )

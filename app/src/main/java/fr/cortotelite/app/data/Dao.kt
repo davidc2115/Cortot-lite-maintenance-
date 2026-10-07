@@ -82,6 +82,14 @@ interface AppDao {
     @Delete
     suspend fun deleteLine(line: DocumentLine)
 
+    @Query("""
+        SELECT * FROM documents
+        WHERE kind = 'FACTURE'
+          AND issuedAt >= :fromMs AND issuedAt < :toMs
+        ORDER BY issuedAt
+    """)
+    suspend fun invoicesInPeriod(fromMs: Long, toMs: Long): List<Document>
+
     @Query("SELECT * FROM travels ORDER BY date DESC")
     fun travels(): Flow<List<Travel>>
 
@@ -99,4 +107,62 @@ interface AppDao {
 
     @Delete
     suspend fun deleteTravel(travel: Travel)
+
+    @Query("SELECT * FROM employees ORDER BY lastName, firstName")
+    fun employees(): Flow<List<Employee>>
+
+    @Query("SELECT * FROM employees WHERE active = 1 ORDER BY lastName, firstName")
+    fun activeEmployees(): Flow<List<Employee>>
+
+    @Query("SELECT * FROM employees WHERE id = :id")
+    suspend fun employee(id: Long): Employee?
+
+    @Transaction
+    @Query("SELECT * FROM employees WHERE id = :id")
+    fun employeeWithPayslips(id: Long): Flow<EmployeeWithPayslips?>
+
+    @Insert
+    suspend fun insertEmployee(employee: Employee): Long
+
+    @Update
+    suspend fun updateEmployee(employee: Employee)
+
+    @Delete
+    suspend fun deleteEmployee(employee: Employee)
+
+    @Query("SELECT * FROM payslips ORDER BY year DESC, month DESC")
+    fun payslips(): Flow<List<Payslip>>
+
+    @Query("SELECT * FROM payslips WHERE employeeId = :employeeId ORDER BY year DESC, month DESC")
+    fun payslipsFor(employeeId: Long): Flow<List<Payslip>>
+
+    @Query("SELECT * FROM payslips WHERE id = :id")
+    suspend fun payslip(id: Long): Payslip?
+
+    @Query("SELECT * FROM payslips WHERE employeeId = :employeeId AND year = :year AND month = :month LIMIT 1")
+    suspend fun payslipForPeriod(employeeId: Long, year: Int, month: Int): Payslip?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPayslip(payslip: Payslip): Long
+
+    @Update
+    suspend fun updatePayslip(payslip: Payslip)
+
+    @Delete
+    suspend fun deletePayslip(payslip: Payslip)
+
+    @Query("SELECT * FROM dividends ORDER BY year DESC, createdAt DESC")
+    fun dividends(): Flow<List<Dividend>>
+
+    @Query("SELECT * FROM dividends WHERE employeeId = :employeeId ORDER BY year DESC")
+    fun dividendsFor(employeeId: Long): Flow<List<Dividend>>
+
+    @Insert
+    suspend fun insertDividend(dividend: Dividend): Long
+
+    @Update
+    suspend fun updateDividend(dividend: Dividend)
+
+    @Delete
+    suspend fun deleteDividend(dividend: Dividend)
 }

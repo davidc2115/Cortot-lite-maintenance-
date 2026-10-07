@@ -796,6 +796,10 @@ fun SettingsScreen(repo: Repo) {
     var maintForfait by remember { mutableStateOf("80") }
     var billingMode by remember { mutableStateOf(MaintenanceBillingMode.PUISSANCE) }
     var roundTrip by remember { mutableStateOf(true) }
+    var paymentDelay by remember { mutableStateOf("30") }
+    var commissionPct by remember { mutableStateOf("10") }
+    var geminiKeys by remember { mutableStateOf("") }
+    var geminiModel by remember { mutableStateOf("gemini-2.0-flash") }
     LaunchedEffect(company) {
         val c = company ?: return@LaunchedEffect
         name = c.name; legal = c.legalName; address = c.address; siret = c.siret
@@ -807,6 +811,10 @@ fun SettingsScreen(repo: Repo) {
         maintForfait = c.maintenanceForfaitHt.toString()
         billingMode = c.maintenanceBillingMode
         roundTrip = c.travelRoundTripDefault
+        paymentDelay = c.paymentDelayDays.toString()
+        commissionPct = c.commissionPercent.toString()
+        geminiKeys = c.geminiApiKeys
+        geminiModel = c.geminiModel
     }
     Scaffold(topBar = { TopAppBar(title = { Text("Société") }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -862,6 +870,18 @@ fun SettingsScreen(repo: Repo) {
                 "Le calcul km utilise l'adresse société et l'adresse chantier (géocodage). Modifiable aussi sur chaque document.",
                 style = MaterialTheme.typography.bodySmall
             )
+            Text("Paie & commissions", style = MaterialTheme.typography.titleMedium)
+            Field("Délai paiement (jours)", paymentDelay, KeyboardType.Number) { paymentDelay = it }
+            Field("Commission société % (CA payé)", commissionPct, KeyboardType.Decimal) { commissionPct = it }
+
+            Text("Intelligence artificielle (Gemini)", style = MaterialTheme.typography.titleMedium)
+            Field("Clés API Gemini (séparées par | )", geminiKeys) { geminiKeys = it }
+            Field("Modèle Gemini", geminiModel) { geminiModel = it }
+            Text(
+                "Rotation automatique des clés en cas de quota / erreur. Ex: AIza...|AIza...",
+                style = MaterialTheme.typography.bodySmall
+            )
+
             Button(onClick = {
                 scope.launch {
                     repo.saveCompany(
@@ -876,7 +896,11 @@ fun SettingsScreen(repo: Repo) {
                             travelRoundTripDefault = roundTrip,
                             maintenanceBillingMode = billingMode,
                             pricePerKwcHt = priceKwc.replace(",", ".").toDoubleOrNull() ?: 40.0,
-                            maintenanceForfaitHt = maintForfait.replace(",", ".").toDoubleOrNull() ?: 80.0
+                            maintenanceForfaitHt = maintForfait.replace(",", ".").toDoubleOrNull() ?: 80.0,
+                            paymentDelayDays = paymentDelay.toIntOrNull() ?: 30,
+                            commissionPercent = commissionPct.replace(",", ".").toDoubleOrNull() ?: 10.0,
+                            geminiApiKeys = geminiKeys.trim(),
+                            geminiModel = geminiModel.trim().ifBlank { "gemini-2.0-flash" }
                         )
                     )
                 }
